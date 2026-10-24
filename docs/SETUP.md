@@ -34,6 +34,15 @@ Follow the one-time ChatGPT setup guide:
 
 https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md
 
+Use the small persistent Project instruction from that public guide. Do **not** copy legacy handoff documents, component commit SHAs, product requirements, or current Project state into ChatGPT Project instructions.
+
+The boundary is deliberate:
+
+- ChatGPT Project instructions bootstrap the current public Project Forge contract and hold only stable user/workstation preferences;
+- foundational Project Forge repositories own reusable platform behavior;
+- after generation, the generated Project repository owns its current product state, work items, architecture, baselines, deployment facts, Git history, pull requests, and CI evidence;
+- legacy handoff files may be retained as historical/reference material, but they are not an onboarding dependency or current-state authority.
+
 After that, start a coding Project with:
 
 ```text
