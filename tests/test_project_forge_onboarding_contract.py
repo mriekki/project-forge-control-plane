@@ -80,6 +80,16 @@ class ProjectForgeOnboardingContractTests(unittest.TestCase):
         self.assertIn("Compatibility allowlist mutation: NOT PERFORMED", claim)
         self.assertIn("Project generation: NOT PERFORMED", claim)
 
+    def test_invalid_self_test_posts_recovery_instructions(self):
+        invite = (ROOT / ".github" / "workflows" / "invite-developer.yml").read_text(encoding="utf-8")
+
+        self.assertIn("continue-on-error: true", invite)
+        self.assertIn("Explain invalid self-test request", invite)
+        self.assertIn("Project Forge onboarding test request invalid", invite)
+        self.assertIn("keep the issue body completely empty", invite)
+        self.assertIn("Editing this issue will not rerun the issue-opened workflow", invite)
+        self.assertIn("core.setFailed(", invite)
+
     def test_test_claim_job_is_repository_read_only_and_has_no_activation_steps(self):
         claim = (ROOT / ".github" / "workflows" / "claim-invitation.yml").read_text(encoding="utf-8")
         marker = "  test-claim:\n"
