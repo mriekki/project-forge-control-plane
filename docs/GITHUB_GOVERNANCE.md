@@ -1,21 +1,32 @@
 # Project Forge Control Plane GitHub Governance
 
-This document records the intended GitHub administration policy for the public Project Forge Control Plane trust root. Repository files define and test the workflow side of these controls; the repository ruleset itself remains GitHub Settings configuration and must be verified from live repository evidence.
+This document records the intended GitHub administration policy for the public Project Forge Control Plane trust root. Repository files define and test the workflow side of these controls; repository rulesets remain GitHub Settings configuration and must be verified from live repository evidence.
 
 ## `main` protection
 
-Configure one active repository ruleset targeting the default branch (`main`) with these minimum rules:
+Use two active repository rulesets targeting the default branch (`main`) so the operational registry bypass cannot weaken history integrity.
+
+### Integrity ruleset — no bypass actors
+
+This ruleset must:
 
 - block branch deletion;
 - block non-fast-forward updates / force pushes;
+- have no bypass actors at all.
+
+Because Project Forge Builder does not bypass this ruleset, activation/revocation automation can never force-push, rewrite history, or delete `main`.
+
+### Change-control ruleset — one exact App bypass
+
+This ruleset must:
+
 - require changes to land through a pull request for normal engineering work;
 - require the stable `CI / required` check before normal PR merge;
 - preserve the explicit human merge/finalize decision for code, workflow, and policy changes;
-- do not grant a repository-role, administrator, or generic GitHub Actions bypass.
+- use **Project Forge Builder** as the only always-allowed bypass actor;
+- not grant a repository-role, administrator, individual-user, or generic GitHub Actions bypass.
 
-The only intended direct-`main` bypass actor is the **Project Forge Builder** GitHub App installation, because activation and revocation must persist the operational developer registry and its exact allowlist projection without turning onboarding into a manual code-review ceremony.
-
-Configure that App as an always-allowed bypass actor for this repository ruleset only. Do not add GitHub Actions, administrators, repository roles, or individual users as bypass actors.
+The App bypass exists only because activation and revocation must persist the operational developer registry and its exact allowlist projection without turning onboarding into a manual code-review ceremony. It bypasses PR/status change control, while the separate integrity ruleset still blocks destructive history operations.
 
 ## Registry persistence boundary
 
@@ -50,15 +61,15 @@ The Project Forge Builder installation on the Control Plane owner's account must
 
 `Registry Persistence Rehearsal` is a manual, non-authorizing workflow. It mints the same exact-repository Project Forge Builder token used by registry persistence, creates an ephemeral branch pointing at the current `main` commit, verifies it, and deletes it. It never changes `main`, developer authorization, the allowlist projection, a generated Project, or Production state.
 
-Use the rehearsal after the App installation is confirmed and before relying on the ruleset bypass for real activation/revocation. Do not create a real invitation or revoke a real Builder merely to test branch protection.
+Use the rehearsal after the App installation is confirmed and before relying on the change-control ruleset bypass for real activation/revocation. Do not create a real invitation or revoke a real Builder merely to test branch protection.
 
 ## Acceptance evidence for issue #107
 
 Before closing the hardening issue, retain evidence that:
 
-1. the active `main` ruleset blocks deletion and force/non-fast-forward updates;
-2. normal engineering changes require pull requests and `CI / required`;
-3. the only bypass actor is Project Forge Builder;
+1. the integrity ruleset blocks deletion and force/non-fast-forward updates with no bypass actors;
+2. the change-control ruleset requires pull requests and `CI / required` for normal engineering changes;
+3. the only change-control bypass actor is Project Forge Builder;
 4. a normal direct write to `main` is refused while a reviewed PR merge succeeds;
 5. `Registry Persistence Rehearsal` succeeds and leaves no rehearsal branch behind;
 6. a non-authorizing onboarding self-test still passes;
