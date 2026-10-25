@@ -34,14 +34,32 @@ jobs:
             --event "$GITHUB_EVENT_PATH" \
             --allowed-owners config/allowed-owners.json
 
+      - name: Resolve protected Core source identity
+        id: core-source
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ secrets.CORE_SOURCE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$SOURCE_REPOSITORY" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+            echo "Protected Core source repository is missing or invalid" >&2
+            exit 2
+          fi
+          owner="${SOURCE_REPOSITORY%%/*}"
+          name="${SOURCE_REPOSITORY#*/}"
+          echo "::add-mask::$SOURCE_REPOSITORY"
+          echo "::add-mask::$name"
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
       - name: Create Core source installation token
         id: source-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: mriekki
-          repositories: project-forge-core
+          owner: ${{ steps.core-source.outputs.owner }}
+          repositories: ${{ steps.core-source.outputs.name }}
           permission-contents: read
 
       - name: Create target installation token
@@ -60,7 +78,7 @@ jobs:
       - name: Checkout accepted Project Forge Core source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: mriekki/project-forge-core
+          repository: ${{ secrets.CORE_SOURCE_REPOSITORY }}
           token: ${{ steps.source-token.outputs.token }}
           path: core
           fetch-depth: 1
@@ -88,6 +106,8 @@ jobs:
       - name: Validate target Core consumer
         id: target
         shell: bash
+        env:
+          EXPECTED_CORE_REPOSITORY: ${{ secrets.CORE_SOURCE_REPOSITORY }}
         run: |
           python - <<'PY'
           import json
@@ -109,8 +129,8 @@ jobs:
           baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
           if baseline.get('schemaVersion') != 1:
               raise SystemExit('Unsupported CORE_BASELINE.json schemaVersion')
-          if baseline.get('coreRepository') != 'mriekki/project-forge-core':
-              raise SystemExit('Target baseline does not belong to mriekki/project-forge-core')
+          if baseline.get('coreRepository') != os.environ['EXPECTED_CORE_REPOSITORY']:
+              raise SystemExit('Target baseline does not match the protected accepted Core source')
           if baseline.get('distribution') != 'greenfield-workspace':
               raise SystemExit('Remote control-plane sync currently supports greenfield-workspace consumers only')
           commit = str(baseline.get('coreCommit') or '')

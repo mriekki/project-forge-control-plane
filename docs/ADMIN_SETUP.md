@@ -2,7 +2,7 @@
 
 > **For Project Forge administrators/operators only.** Project Builders do not need to configure this repository, GitHub Actions variables/secrets, or the GitHub App. Builder onboarding is intentionally kept separate in [`SETUP.md`](SETUP.md).
 
-This repository is the public orchestration surface for Project Forge generation, Builder invitation/authorization, and supported remote update workflows. Reusable discovery/generation logic remains in `mriekki/project-forge-bootstrap`; the public `@mriekki/project-forge` package remains the normal reusable-asset delivery boundary for generated Projects.
+This repository is the public orchestration surface for Project Forge generation, Builder invitation/authorization, and supported remote update workflows. Private foundational source topology stays behind protected Actions configuration; the public `@mriekki/project-forge` package remains the normal reusable-asset delivery boundary for generated Projects.
 
 Canonical repository identity:
 
@@ -10,7 +10,7 @@ Canonical repository identity:
 mriekki/project-forge-control-plane
 ```
 
-The canonical generation manifest is `PROJECT_BOOTSTRAP.json`. No retired predecessor manifest filename is supported as a compatibility alias.
+The canonical generation manifest is `PROJECT_BOOTSTRAP.json`.
 
 ## Security boundary
 
@@ -25,15 +25,15 @@ Public operational issues contain only safe identities:
 [sync-core] owner/repository
 ```
 
-Issue bodies must remain empty. Private Project definitions, baseline contents, source code, credentials, and secrets never belong in a Control Plane issue.
+Issue bodies must remain empty. Private Project definitions, baseline contents, source code, foundational repository topology, credentials, and secrets never belong in a Control Plane issue.
 
 Private generation data stays in the target repository's `PROJECT_BOOTSTRAP.json`. Workflows read target-private files only after minting a GitHub App installation token scoped to that exact repository.
 
-Do not store PATs or npm publish tokens in this repository. The credential model is one GitHub App private key stored as an Actions secret; workflows mint short-lived installation tokens for the exact source/target repositories needed by each operation.
+Do not store PATs or npm publish tokens in this repository. The credential model is one GitHub App private key plus protected source-repository mappings stored as Actions secrets; workflows mint short-lived installation tokens for the exact source/target repositories needed by each operation.
 
 ## GitHub App registration
 
-Create one GitHub App owned by `mriekki` and configure it so it can be installed on approved Builder accounts.
+Create one GitHub App owned by the Control Plane owner and configure it so it can be installed on approved Builder accounts.
 
 Public display identity:
 
@@ -74,14 +74,18 @@ The invitation workflow derives the public installation URL from the App slug re
 
 ## Actions configuration
 
-Configure only these GitHub App credentials in this repository:
+Configure these values in **Settings → Secrets and variables → Actions**:
 
 1. Store the App **Client ID** as Actions variable `APP_CLIENT_ID`.
 2. Store the complete App private key as Actions secret `APP_PRIVATE_KEY`.
-3. Do not commit either credential.
-4. Keep `config/developers.json`, `config/invitation-policy.json`, and `config/allowed-owners.json` valid under CI.
+3. Store the exact private Bootstrap source as Actions secret `BOOTSTRAP_SOURCE_REPOSITORY` using `owner/repository` format.
+4. Store the exact private Core source as Actions secret `CORE_SOURCE_REPOSITORY` using `owner/repository` format.
+5. Do not commit the protected source mappings or credentials into this public repository.
+6. Keep `config/developers.json`, `config/invitation-policy.json`, and `config/allowed-owners.json` valid under CI.
 
-The invitation workflow uses those credentials to resolve GitHub's actual App slug and constructs the standard GitHub App installation URL automatically. Renaming the App display name does not require rotating `APP_CLIENT_ID` or `APP_PRIVATE_KEY`.
+The generation and Core-sync workflows validate these protected mappings, mask the resolved private repository identities in logs, and fail closed if required configuration is absent or malformed. Public contract compatibility still pins exact accepted revisions; the protected mapping only supplies the private repository location.
+
+The invitation workflow uses the App credentials to resolve GitHub's actual App slug and constructs the standard GitHub App installation URL automatically. Renaming the App display name does not require rotating `APP_CLIENT_ID` or `APP_PRIVATE_KEY`.
 
 ## Developer invitation contract
 
@@ -117,21 +121,21 @@ After discovery and Project Definition approval:
 
 1. the Builder owns a private, safe target repository;
 2. ChatGPT verifies exact GitHub owner/target safety;
-3. only the approved schema-v2 `PROJECT_BOOTSTRAP.json` seed is written before generation;
-4. the manifest pins exact Bootstrap provenance and an exact `@mriekki/project-forge` package/version/profile;
+3. only the approved `PROJECT_BOOTSTRAP.json` seed is written before generation;
+4. the manifest pins exact Bootstrap revision compatibility and an exact `@mriekki/project-forge` package/version/profile;
 5. ChatGPT opens an empty-body public issue here titled `[generate-project] owner/repository`;
 6. the author must equal the target owner and be ACTIVE with generation authorization;
-7. the workflow obtains a Bootstrap-only source token and exact-target token;
-8. Bootstrap validates the private manifest and resolves machine provenance such as registry integrity;
+7. the workflow resolves the protected Bootstrap source mapping and obtains a source-only token plus an exact-target token;
+8. the checked-out source revision is verified against the public accepted generation revision before the private manifest is validated;
 9. the workflow downloads/verifies exactly the approved package;
-10. deterministic generation runs through Bootstrap's canonical package path;
+10. deterministic generation runs through the canonical generation path;
 11. generated tools/baselines are verified before publication;
 12. the validated generated tree is published without force-pushing; and
 13. target default-branch CI is verified before local setup acceptance.
 
-Normal approved discovery may use `integrity: "registry"` for deterministic machine resolution. Humans are not expected to discover or paste npm integrity metadata. Package/version/profile are the meaningful human approval surface; Bootstrap resolves and verifies exact integrity before reusable mutation.
+Normal approved discovery may use `integrity: "registry"` for deterministic machine resolution. Humans are not expected to discover or paste npm integrity metadata. Package/version/profile are the meaningful human approval surface; the generation boundary resolves and verifies exact integrity before reusable mutation.
 
-Missing access, unavailable exact packages, integrity mismatch, invalid provenance, managed-path conflict, or failed generation are stop conditions. They never authorize silent fallback to a different package, local ZIP, destination, or component commit.
+Missing protected source configuration, missing access, unavailable exact packages, integrity mismatch, invalid provenance, managed-path conflict, or failed generation are stop conditions. They never authorize silent fallback to a different package, source revision, local ZIP, destination, or component revision.
 
 ## Remote Core-sync compatibility path
 
@@ -141,8 +145,8 @@ A supported consumer may request:
 [sync-core] owner/repository
 ```
 
-with an empty body. The workflow validates authorization and baseline integrity, uses exact source/target tokens, creates a new non-force branch when needed, opens a consumer PR, and reports success only when its checks are green. Merge remains a human decision.
+with an empty body. The workflow resolves the accepted Core source from `CORE_SOURCE_REPOSITORY`, validates authorization and baseline integrity, uses exact source/target tokens, creates a new non-force branch when needed, opens a consumer PR, and reports success only when its checks are green. Merge remains a human decision.
 
-## Repository rename boundary
+## Repository identity boundary
 
-The canonical repository is `mriekki/project-forge-control-plane`. Historical repository links may redirect at GitHub, but new documentation, contracts, and tooling must emit the canonical Project Forge repository identity. Command identifiers remain unchanged; the generation-manifest filename is now exclusively `PROJECT_BOOTSTRAP.json`.
+The public Control Plane and public Platform identities may appear in public documentation because they are intended public surfaces. Private foundational source repository identities belong only in protected Actions configuration. Historical public Git data is not rewritten; this boundary governs active current files and future contract revisions.

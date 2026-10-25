@@ -29,13 +29,13 @@ def initialize_repo(root: Path, attributes: str) -> None:
 def component_metadata() -> dict[str, dict[str, str]]:
     return {
         "core": {
-            "repository": "mriekki/project-forge-core",
+            "repository": "example/private-core-source",
             "commit": "a" * 40,
             "version": "2.0.0",
             "distribution": "greenfield-workspace",
         },
         "deployment": {
-            "repository": "mriekki/project-forge-deployment-kit",
+            "repository": "example/private-deployment-source",
             "commit": "b" * 40,
             "distribution": "greenfield-project",
         },
@@ -74,7 +74,7 @@ def write_core_baseline(root: Path, path: str, content: bytes) -> str:
         root / "CORE_BASELINE.json",
         {
             "schemaVersion": 1,
-            "coreRepository": "mriekki/project-forge-core",
+            "coreRepository": "example/private-core-source",
             "coreCommit": "a" * 40,
             "coreVersion": "2.0.0",
             "distribution": "greenfield-workspace",
@@ -96,7 +96,7 @@ def write_deployment_baseline(root: Path, path: str, content: bytes) -> str:
         root / "DEPLOYMENT_BASELINE.json",
         {
             "schemaVersion": 1,
-            "deploymentKitRepository": "mriekki/project-forge-deployment-kit",
+            "deploymentKitRepository": "example/private-deployment-source",
             "deploymentKitCommit": "b" * 40,
             "distribution": "greenfield-project",
             "managedPaths": [
