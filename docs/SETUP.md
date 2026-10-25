@@ -14,9 +14,9 @@ Confirm the issue names your exact **GitHub username**.
 
 If the username is wrong, stop and ask the Project Forge admin for a fresh invitation.
 
-### 2. Install or approve Project Forge Builder
+### 2. Install Project Forge Builder
 
-Use the **Project Forge Builder** GitHub App link in the invitation issue.
+Use the **Project Forge Builder** GitHub App link in the invitation issue and install/approve it for your GitHub account if needed.
 
 - **Simplest:** allow the App for all repositories in your GitHub account.
 - **Tighter access:** select repositories. If you do this, each future Project repository must be added before Project Forge can operate on it.
