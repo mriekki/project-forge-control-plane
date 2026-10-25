@@ -101,10 +101,44 @@ jobs:
 
       - name: Validate self-test request
         id: test-invite
+        continue-on-error: true
         run: |
           python tools/onboarding_test.py extract-invite \
             --event "$GITHUB_EVENT_PATH" \
             --registry config/developers.json
+
+      - name: Explain invalid self-test request
+        if: steps.test-invite.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const templateUrl =
+              `https://github.com/${context.repo.owner}/${context.repo.repo}/issues/new?template=test-onboarding.md`;
+            const body = [
+              '# Project Forge onboarding test request invalid',
+              '',
+              'The onboarding self-test request did not pass validation, so no access or authorization was changed.',
+              '',
+              'For the supported zero-input test:',
+              '',
+              '- create a fresh **Test Project Forge onboarding** issue from the template;',
+              '- leave the prefilled `[test-invite-forge]` title unchanged;',
+              '- keep the issue body completely empty;',
+              '- submit the issue unchanged while signed in as the active Project Forge admin.',
+              '',
+              `Create a fresh self-test issue: ${templateUrl}`,
+              '',
+              'Editing this issue will not rerun the issue-opened workflow; use a new test issue instead.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed(
+              'Invalid Project Forge onboarding self-test request; recovery instructions were posted to the issue.'
+            );
 
       - name: Read invitation policy
         id: test-policy
