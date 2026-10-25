@@ -11,15 +11,7 @@ from typing import Any
 
 REQUEST_PREFIX = "[generate-project]"
 SYNC_REQUEST_PREFIX = "[sync-core]"
-FOUNDATIONAL_REPOSITORIES = {
-    "mriekki/project-forge-core",
-    "mriekki/project-forge-bootstrap",
-    "mriekki/project-forge-adoption-kit",
-    "mriekki/project-forge-control-plane",
-    "mriekki/project-forge-deployment-kit",
-    "mriekki/project-forge-platform",
-    "mriekki/family-meal-planner",
-}
+RESERVED_PROJECT_FORGE_REPOSITORY_PREFIX = "project-forge-"
 
 
 class RequestError(RuntimeError):
@@ -83,11 +75,12 @@ def _parse_target_request(
         raise RequestError(f"Target owner is not enabled for this control plane: {owner}")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", repository_name):
         raise RequestError(f"Invalid target repository name: {repository_name!r}")
+    if repository_name.lower().startswith(RESERVED_PROJECT_FORGE_REPOSITORY_PREFIX):
+        raise RequestError(
+            f"Refusing reserved Project Forge repository namespace as {request_label.lower()} target: {owner}/{repository_name}"
+        )
 
     repository = f"{owner}/{repository_name}"
-    if repository.lower() in {value.lower() for value in FOUNDATIONAL_REPOSITORIES}:
-        raise RequestError(f"Refusing foundational repository as {request_label.lower()} target: {repository}")
-
     number = str(issue.get("number") or "")
     if not number.isdigit():
         raise RequestError("Issue number is missing or invalid")
