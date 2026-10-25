@@ -5,7 +5,7 @@ on:
     types: [opened]
 
 permissions:
-  contents: write
+  contents: read
   issues: write
 
 concurrency:
@@ -31,6 +31,22 @@ jobs:
             --event "$GITHUB_EVENT_PATH" \
             --registry config/developers.json
 
+      - name: Create Control Plane registry persistence token
+        id: registry-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Re-authenticate Control Plane checkout for registry persistence
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          token: ${{ steps.registry-token.outputs.token }}
+
       - name: Revoke future Control Plane authorization
         run: |
           python tools/invitation.py revoke \
@@ -43,17 +59,58 @@ jobs:
             --registry config/developers.json \
             --allowed-owners config/allowed-owners.json
 
-      - name: Commit operational registry update
+      - name: Commit operational registry update safely
+        id: persist
+        continue-on-error: true
         env:
           TARGET_OWNER: ${{ steps.revoke.outputs.target_owner }}
         run: |
-          git config user.name "project-forge-control-plane[bot]"
+          set -euo pipefail
+          git config user.name "${{ steps.registry-token.outputs.app-slug }}[bot]"
           git config user.email "noreply@github.com"
           git add config/developers.json config/allowed-owners.json
-          git commit -m "Revoke Project Forge developer ${TARGET_OWNER}"
-          git push origin HEAD:main
+          unexpected="$(git diff --cached --name-only | grep -Ev '^(config/developers\.json|config/allowed-owners\.json)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Refusing unexpected staged registry paths:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "Registry already reflects the revocation."
+          else
+            git commit -m "Revoke Project Forge developer ${TARGET_OWNER}"
+            git fetch origin main
+            git rebase origin/main
+            python tools/invitation.py validate-config \
+              --registry config/developers.json \
+              --allowed-owners config/allowed-owners.json
+            git push origin HEAD:main
+          fi
+
+      - name: Explain registry persistence failure
+        if: steps.persist.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const body = [
+              '# Project Forge revocation needs administrator attention',
+              '',
+              'Revocation authorization passed, but the Control Plane registry update could not be persisted safely to `main`.',
+              '',
+              'No force-push or history rewrite was attempted.',
+              '',
+              'A Project Forge admin should resolve the Control Plane branch conflict or App/ruleset configuration, then create a fresh revocation issue if the target is still active.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed('Project Forge registry persistence failed safely.');
 
       - name: Report revocation
+        if: steps.persist.outcome == 'success'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           TARGET_OWNER: ${{ steps.revoke.outputs.target_owner }}
