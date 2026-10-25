@@ -1,64 +1,108 @@
 # Project Forge Builder Setup
 
-This page is for a developer who has been invited to **Project Forge**.
+This page is for a developer who has received a **Project Forge** invitation.
 
-You do **not** need to configure the Project Forge Control Plane, GitHub Actions variables/secrets, Bootstrap, or any Project Forge infrastructure. Those are administrator responsibilities.
+You do **not** configure the Control Plane, GitHub Actions secrets, Bootstrap, or Project Forge infrastructure. The invitation issue is your onboarding portal.
 
-## Activate your access
+> **Privacy:** Control Plane invitation issues are public. Never paste source code, Project requirements, credentials, tokens, private keys, or other private information into them.
 
-Use the Project Forge invitation issue you received.
+## Activate Project Forge
 
-### 1. Install Project Forge Builder
+### 1. Open your invitation issue
 
-In the invitation issue, open the **Project Forge Builder** GitHub App link and install/approve it for your GitHub account if needed.
+Confirm the issue names your exact **GitHub username**.
 
-For the simplest experience, allow the App for **all repositories** in your account. You can choose selected repositories instead, but any new Project repository must be added to the App before Project Forge can generate or update it.
+If the username is wrong, stop and ask the Project Forge admin for a fresh invitation.
+
+### 2. Install or approve Project Forge Builder
+
+Use the **Project Forge Builder** GitHub App link in the invitation issue.
+
+- **Simplest:** allow the App for all repositories in your GitHub account.
+- **Tighter access:** select repositories. If you do this, each future Project repository must be added before Project Forge can operate on it.
 
 If the App is already installed, do not remove or reinstall it just to continue.
 
-### 2. Accept the invitation
+### 3. Accept the invitation
 
-Return to the same invitation issue. While signed in as the GitHub account that was invited, add a new comment containing exactly:
+While signed in as the GitHub user named in the invitation, add a new comment containing exactly:
 
 ```text
 /accept-project-forge
 ```
 
-Project Forge will automatically verify your GitHub identity, App installation, activation, and public Project Forge contract.
+Project Forge automatically checks:
 
-When the issue reports **Project Forge is ready**, GitHub onboarding is complete.
+```text
+GitHub identity
+→ GitHub App installation
+→ developer authorization
+→ public Project Forge operating contract
+→ READY FOR PROJECT FORGE
+```
 
-## Next: set up ChatGPT once
+When the issue reports **Project Forge is ready**, GitHub onboarding is complete and the issue closes automatically.
 
-Follow the one-time ChatGPT setup guide:
+## Configure ChatGPT once
+
+Follow the public one-time setup guide:
 
 https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md
 
-Use the small persistent Project instruction from that public guide. Do **not** copy legacy handoff documents, component commit SHAs, product requirements, or current Project state into ChatGPT Project instructions.
+Every Builder uses the same canonical Project Forge Project instruction. Personal GitHub/workstation/learning preferences belong only in that Builder's small Developer Profile.
 
-The boundary is deliberate:
+Do **not** copy product requirements, component SHAs, current Project state, or legacy handoff contents into Project instructions.
 
-- ChatGPT Project instructions bootstrap the current public Project Forge contract and hold only stable user/workstation preferences;
-- foundational Project Forge repositories own reusable platform behavior;
-- after generation, the generated Project repository owns its current product state, work items, architecture, baselines, deployment facts, Git history, pull requests, and CI evidence;
-- legacy handoff files may be retained as historical/reference material, but they are not an onboarding dependency or current-state authority.
-
-After that, start a coding Project with:
+Then start with:
 
 ```text
 New Project: <your idea>
 ```
 
-## If activation says the App is missing
+## Recovery
 
-Use the **Project Forge Builder** installation link in your invitation issue, approve the App for the invited GitHub account, then comment `/accept-project-forge` again.
+### App installation not verified
 
-Do not create GitHub Actions variables, secrets, App credentials, or Control Plane configuration yourself. If the invitation issue does not provide a working App installation link, contact the person who invited you; that is a Project Forge administrator configuration problem.
+Use the direct **Project Forge Builder** link posted on the invitation issue, approve the App for the invited GitHub user, then add a fresh comment containing exactly:
+
+```text
+/accept-project-forge
+```
+
+### Invitation expired
+
+Ask the Project Forge admin for a fresh invitation. Expiration applies only while an invitation is still pending.
+
+### Builder is already ACTIVE but readiness needs checking
+
+On the original invitation issue, comment:
+
+```text
+/project-forge-doctor
+```
+
+If the original invitation issue is unavailable, open a fresh empty-body issue titled:
+
+```text
+[project-forge-doctor] <github-user>
+```
+
+A successful readiness retry closes its issue.
+
+### Decline a still-pending invitation
+
+While signed in as the invited GitHub user, comment:
+
+```text
+/decline-project-forge
+```
+
+An already-ACTIVE Builder cannot decline the completed invitation; an admin must use the revocation flow to remove future authorization.
 
 ## More about Project Forge
 
-- Project Forge overview: https://github.com/mriekki/project-forge-platform/blob/main/WELCOME.md
+- Overview: https://github.com/mriekki/project-forge-platform/blob/main/WELCOME.md
 - ChatGPT setup: https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md
-- Project Forge Control Plane: https://github.com/mriekki/project-forge-control-plane
+- Control Plane: https://github.com/mriekki/project-forge-control-plane
 
 Administrators/operators: see [`ADMIN_SETUP.md`](ADMIN_SETUP.md).

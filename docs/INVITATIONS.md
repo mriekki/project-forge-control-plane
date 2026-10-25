@@ -1,16 +1,8 @@
 # Project Forge Developer Invitations
 
-The invitation system is the onboarding/authorization layer for Builders who use Project Forge.
+The Control Plane invitation system answers one question: **who is authorized to use Project Forge automation?**
 
-Canonical Control Plane repository:
-
-```text
-mriekki/project-forge-control-plane
-```
-
-The public GitHub App display name is **Project Forge Builder**. Canonical technical identifiers include `[invite-project-forge]`, `/accept-project-forge`, `project-author`, `[generate-project]`, and `PROJECT_BOOTSTRAP.json`.
-
-The onboarding model separates three questions:
+It is intentionally separate from the public ChatGPT operating contract and from each generated Project repository.
 
 ```text
 Invitation / developer registry
@@ -23,161 +15,171 @@ Generated Project repository
 What is true about this Project?
 ```
 
-## Admin quick actions
+## Builder-facing happy path
 
-From **Issues → New issue** choose:
+An ACTIVE Project Forge admin opens **Issues → New issue → Invite a Project Forge Builder** and enters the developer's exact GitHub username.
 
-- **Invite a Project Forge Builder** — real authorization invitation for another GitHub owner;
-- **Test Project Forge onboarding** — non-authorizing self-test using the active admin's own GitHub account.
-
-The self-test is zero-input: submit the prefilled empty-body issue. The workflow infers the active admin from the issue opener.
-
-## Developer registry
-
-`config/developers.json` is the operational developer registry.
-
-Current technical roles remain:
-
-- `admin` — normal Project Builder capabilities plus invitation/revocation administration;
-- `project-author` — role identifier for a normal Project Builder with generation and supported update/sync authorization.
-
-`config/allowed-owners.json` remains a generated authorization projection for existing validators and must mirror ACTIVE developers with `generate-project`. CI validates that invariant.
-
-No credential, private Project definition, private repository content, or secret belongs in either file.
-
-## Product-facing invitation flow
-
-An active admin creates one public issue with an empty body:
+The resulting public issue is:
 
 ```text
-[invite-project-forge] github-owner
+[invite-project-forge] <github-user>
 ```
 
-Creating that issue is the meaningful administrative authorization gate.
+The issue body must be empty.
 
-The issue URL is the invitation/onboarding portal. The notification and issue instructions make the complete Builder action explicit:
+Before publishing the invitation instructions, the Control Plane verifies:
+
+- the issue was opened by an ACTIVE admin with `invite-developer`;
+- the body is empty;
+- the target uses valid GitHub-login syntax;
+- the target exists on GitHub;
+- the target is a GitHub **user**, not an organization;
+- the target is not already ACTIVE.
+
+The invitation issue then gives the Builder only two required actions:
 
 ```text
-1. Open the Project Forge invitation issue.
-2. Install/approve the Project Forge Builder GitHub App if needed.
-3. In that same issue, add a new comment containing exactly:
-   /accept-project-forge
+1. Install/approve Project Forge Builder.
+2. Comment exactly: /accept-project-forge
 ```
 
-The invited Builder does not need to understand or configure the Control Plane, GitHub Actions, Bootstrap, package plumbing, App credentials, or contract internals before accepting. Builder-facing guidance lives in `docs/SETUP.md`; operator setup lives separately in `docs/ADMIN_SETUP.md`.
+The issue itself is the onboarding portal. A forwarded issue URL does not grant authorization.
 
-For the smoothest flow, install Project Forge Builder for all repositories in the invited account. Exact workflow tokens remain scoped to the repository being operated on. Selecting individual repositories is supported, but each newly created Project repository must then be added before generation/update operations can use it.
+## Claim validation
 
-The invitation workflow derives the GitHub App installation URL automatically from the actual App slug returned by `actions/create-github-app-token`. There is no separate `APP_INSTALL_URL` configuration variable and no fallback from a Builder invitation into administrator setup documentation.
+A claim is valid only when all of these are true:
 
-The claim workflow verifies:
+- the invitation is still pending;
+- the original inviter remains authorized;
+- the claim is within `config/invitation-policy.json`;
+- the commenter exactly matches the invited GitHub user;
+- the comment is exactly `/accept-project-forge` after harmless surrounding whitespace is removed;
+- Project Forge can verify the GitHub App installation for that user.
 
-- the invitation was opened by a currently authorized admin;
-- the commenter exactly matches the invited owner;
-- the invitation is still inside the configured claim window;
-- the Project Forge Builder GitHub App installation can be minted/verified for that owner.
+Only then may the Control Plane persist the developer as ACTIVE.
 
-Only then does it activate the developer registry and authorization projection.
+Registry writes are serialized by the `project-forge-developer-registry` concurrency group. They use normal Git fast-forward/rebase mechanics only; no force-push or history rewrite is allowed. A concurrent/conflicting `main` update fails safely and posts recovery guidance on the invitation issue.
 
-Knowing or forwarding an invitation URL does not grant authorization.
+## Automatic readiness
 
-The invited developer may instead comment `/decline-project-forge`; decline closes the invitation and makes no registry change.
+After activation is persisted, the same claim run verifies the public Project Forge ChatGPT contract using the shared runtime verifier.
 
-## Automatic readiness after activation
-
-Successful `/accept-project-forge` performs the normal readiness check automatically:
+Happy path:
 
 ```text
 PENDING
 → identity verified
-→ Project Forge Builder GitHub App verified
+→ App verified
 → ACTIVE
-→ public Project Forge contract verified
+→ public contract verified
 → READY FOR PROJECT FORGE
+→ invitation issue CLOSED
 ```
 
-The Builder should not need a separate doctor command on the happy path.
+If authorization becomes ACTIVE but public-contract verification is temporarily unavailable, the invitation stays open as the recovery surface.
 
-If activation succeeds but the public contract cannot be verified, authorization remains ACTIVE and the invitation remains the recovery surface. After the underlying problem is fixed, the Builder or admin may comment `/project-forge-doctor`.
-
-An already-ACTIVE Builder without an invitation issue can instead open:
+After the underlying problem is fixed, the Builder or an admin comments:
 
 ```text
-[project-forge-doctor] github-owner
+/project-forge-doctor
 ```
 
-The readiness check verifies ACTIVE registry state, Project Forge Builder App availability, and the SHA-256-pinned public Project Forge contract.
+A successful doctor retry reports **READY FOR PROJECT FORGE** and closes the issue.
 
-After readiness, the Builder configures a ChatGPT coding Project once using the public setup guide, then starts normal work with:
+An already-ACTIVE Builder without an invitation issue may instead open an empty-body issue:
 
 ```text
-New Project: <idea>
+[project-forge-doctor] <github-user>
 ```
 
+## Pending-only terminal states
 
-## Admin onboarding test mode
+Decline and expiration apply only while an invitation is still pending.
 
-An active admin can rehearse onboarding before inviting a real Builder by submitting the empty-body **Test Project Forge onboarding** issue template:
+```text
+PENDING → DECLINED
+PENDING → EXPIRED
+```
+
+They must never describe an already-ACTIVE Builder as declined or expired.
+
+The invited GitHub user may decline by commenting exactly:
+
+```text
+/decline-project-forge
+```
+
+Expiration uses the configured claim window and scans all open Control Plane issues rather than an arbitrary first-page limit.
+
+Neither decline nor expiration changes developer authorization because both are permitted only before activation.
+
+## Recovery behavior
+
+Expected human input errors are reported on the issue, not only in the Actions log.
+
+Examples include:
+
+- malformed/non-empty invitation;
+- unknown or non-user GitHub target;
+- wrong claimant identity;
+- expired invitation;
+- already-ACTIVE target;
+- missing GitHub App installation;
+- malformed decline;
+- malformed doctor request;
+- safe registry persistence conflict.
+
+The workflow remains fail-closed. Actionable issue guidance does not relax validation.
+
+## Admin onboarding self-test
+
+An ACTIVE admin may open **Test Project Forge onboarding**:
 
 ```text
 [test-invite-forge]
 ```
 
-The opener identity is the test identity. The `/accept-project-forge` commenter must be that same active admin. A self-test cannot target another Builder.
+The zero-input self-test is self-only and non-authorizing. It verifies the current onboarding path without:
 
-The test portal reproduces:
+- mutating the developer registry or compatibility projection;
+- changing roles/capabilities;
+- creating a Project repository;
+- deploying or tearing down anything.
 
-```text
-short invitation preview
-→ direct Project Forge Builder GitHub App install page
-→ /accept-project-forge
-→ GitHub identity verification
-→ App installation verification
-→ public Project Forge contract verification
-→ TEST READY FOR PROJECT FORGE
-```
+The test uses the same current App and public-contract verification as the real onboarding path.
 
-The test is deliberately non-authorizing:
+## Developer registry
 
-- test claim repository contents permission is read-only;
-- no activation operation runs;
-- developer registry and authorization projection are never written;
-- no role/capability change occurs;
-- no Project repository is created/generated;
-- no deployment or tear-down path is available.
+`config/developers.json` is the operational registry.
 
-A successful test demonstrates onboarding UX and readiness without changing future authorization.
+Roles:
 
-## Invitation lifecycle
+- `admin` — normal Project Builder capabilities plus invitation/revocation administration;
+- `project-author` — normal Project Builder with generation and supported update/sync authorization.
 
-The invitation claim lifetime comes from `config/invitation-policy.json`.
+`config/allowed-owners.json` is a generated compatibility projection of ACTIVE developers with `generate-project`. CI validates the invariant.
 
-Terminal states include:
+No secrets, credentials, private Project definitions, or repository contents belong in either file.
+
+## Revocation
+
+An ACTIVE admin opens an empty-body issue:
 
 ```text
-DECLINED
-EXPIRED
+[revoke-project-forge] <github-user>
 ```
 
-Expiration and decline never mutate developer authorization. A failed App check leaves the invitation pending.
+Revocation removes **future Control Plane authorization only**. It does not delete, transfer, disable, or mutate repositories already owned by the Builder.
 
-## Revoke flow
+The last ACTIVE admin cannot be revoked.
 
-An active admin creates an empty-body issue:
+## Public onboarding surfaces
+
+Builder setup:
 
 ```text
-[revoke-project-forge] github-owner
+https://github.com/mriekki/project-forge-control-plane/blob/main/docs/SETUP.md
 ```
-
-Revocation removes future Control Plane authorization only. It never deletes, transfers, disables, rewrites, or otherwise mutates repositories already owned by the Builder. The tooling refuses to revoke the last active admin.
-
-## GitHub App administration
-
-`APP_CLIENT_ID` and `APP_PRIVATE_KEY` remain the Control Plane workflow credentials. The invitation workflow uses them to resolve the real App slug and derive GitHub's standard installation URL automatically.
-
-Builders do not configure these values. Administrator setup is documented in `docs/ADMIN_SETUP.md`.
-
-## Public onboarding pages
 
 Project Forge overview:
 
@@ -185,22 +187,16 @@ Project Forge overview:
 https://github.com/mriekki/project-forge-platform/blob/main/WELCOME.md
 ```
 
-Builder GitHub onboarding:
-
-```text
-https://github.com/mriekki/project-forge-control-plane/blob/main/docs/SETUP.md
-```
-
-ChatGPT one-time setup:
+One-time ChatGPT setup:
 
 ```text
 https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md
 ```
 
-Low-level public bootstrap entrypoint:
+Low-level public contract bootstrap:
 
 ```text
 https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/START_HERE.md
 ```
 
-New Builders should use the invitation + Project Forge public onboarding path. They do not need legacy handoff files or direct access to private Bootstrap/Core repositories.
+New Builders do not need legacy handoff files or direct access to private Bootstrap/Core repositories.

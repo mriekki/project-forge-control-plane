@@ -12,22 +12,51 @@ jobs:
   decline:
     if: >-
       startsWith(github.event.issue.title, '[invite-project-forge] ') &&
-      github.event.comment.body == '/decline-project-forge'
+      contains(github.event.comment.body, '/decline-project-forge')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
 
-      - name: Validate decline identity
+      - name: Validate pending invitation decline
         id: decline
         run: |
-          python tools/invitation.py extract-decline \
+          python tools/onboarding_portal.py validate \
+            --kind decline \
             --event "$GITHUB_EVENT_PATH" \
             --registry config/developers.json
 
+      - name: Explain invalid decline request
+        if: steps.decline.outputs.valid != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          VALIDATION_ERROR: ${{ steps.decline.outputs.error }}
+        with:
+          script: |
+            const error = process.env.VALIDATION_ERROR || 'Invitation decline did not pass validation.';
+            const body = [
+              '# Project Forge decline request invalid',
+              '',
+              `Reason: ${error}`,
+              '',
+              'Only the invited GitHub user may decline a still-pending invitation.',
+              '',
+              'If access is already ACTIVE, this invitation can no longer be declined; use the normal revocation flow if an admin needs to remove future authorization.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed('Invalid Project Forge invitation decline.');
+
       - name: Close declined invitation
+        if: steps.decline.outputs.valid == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           TARGET_OWNER: ${{ steps.decline.outputs.target_owner }}
@@ -38,7 +67,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `PROJECT_FORGE INVITATION — DECLINED\n\n@${target} declined this invitation. No developer authorization was changed.`,
+              body: `PROJECT_FORGE INVITATION — DECLINED\n\n@${target} declined this still-pending invitation. No developer authorization was changed.`,
             });
             await github.rest.issues.update({
               owner: context.repo.owner,

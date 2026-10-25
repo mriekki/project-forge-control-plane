@@ -14,27 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
 
-      - name: List open issues
+      - name: List every open issue
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh issue list \
-            --repo "$GITHUB_REPOSITORY" \
-            --state open \
-            --limit 200 \
-            --json number,title,createdAt > "$RUNNER_TEMP/open-issues.json"
+          set -euo pipefail
+          gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" \
+            --jq '.[] | select(.pull_request == null) | {number, title, createdAt: .created_at}' \
+            | jq -s '.' > "$RUNNER_TEMP/open-issues.json"
 
-      - name: Resolve expired invitation issues
+      - name: Resolve expired still-pending invitation issues
         run: |
-          python tools/invitation.py list-expired \
+          python tools/onboarding_portal.py list-expired-pending \
             --issues "$RUNNER_TEMP/open-issues.json" \
+            --registry config/developers.json \
             --policy config/invitation-policy.json > "$RUNNER_TEMP/expired-issues.txt"
 
-      - name: Close expired invitations
+      - name: Close expired pending invitations
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -44,7 +48,7 @@ jobs:
             [ -z "$issue" ] && continue
             gh issue comment "$issue" \
               --repo "$GITHUB_REPOSITORY" \
-              --body "PROJECT_FORGE INVITATION — EXPIRED\n\nThe configured claim window elapsed. No developer authorization was changed. Ask a Project Forge admin for a new invitation if access is still wanted."
+              --body $'PROJECT_FORGE INVITATION — EXPIRED\n\nThe configured claim window elapsed while this invitation was still pending. No activation occurred for this invitation.\n\nAsk a Project Forge admin for a fresh invitation if access is still wanted.'
             gh issue close "$issue" \
               --repo "$GITHUB_REPOSITORY" \
               --reason "not planned"
