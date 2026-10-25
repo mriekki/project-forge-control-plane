@@ -20,9 +20,7 @@ SPEC.loader.exec_module(project_forge_contract)
 
 class ProjectForgeContractTests(unittest.TestCase):
     PRIVATE_ENV = {
-        "PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY": "example/private-bootstrap-source",
-        "PROJECT_FORGE_BOOTSTRAP_SOURCE_COMMIT": "a" * 40,
-        "PROJECT_FORGE_BOOTSTRAP_RELEASE_ID": "bootstrap-stable-12",
+        "PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY": "example/private-source",
     }
 
     def descriptor(self) -> dict:
@@ -30,12 +28,12 @@ class ProjectForgeContractTests(unittest.TestCase):
             "schemaVersion": 1,
             "generation": {
                 "bootstrap": {
-                    "releaseId": "bootstrap-stable-12",
+                    "revision": "a" * 40,
                     "protocolVersion": 12,
-                    "catalogVersion": 11,
+                    "catalogVersion": 12,
                 },
                 "package": "@mriekki/project-forge",
-                "packageVersion": "4.3.0",
+                "packageVersion": "4.4.2",
                 "profile": "greenfield-project",
             },
         }
@@ -44,9 +42,9 @@ class ProjectForgeContractTests(unittest.TestCase):
         value = self.descriptor()
         value["generation"]["bootstrap"] = {
             "repository": self.PRIVATE_ENV["PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY"],
-            "commit": self.PRIVATE_ENV["PROJECT_FORGE_BOOTSTRAP_SOURCE_COMMIT"],
+            "commit": "a" * 40,
             "protocolVersion": 12,
-            "catalogVersion": 11,
+            "catalogVersion": 12,
         }
         return value
 
@@ -54,22 +52,22 @@ class ProjectForgeContractTests(unittest.TestCase):
         with mock.patch.dict(os.environ, self.PRIVATE_ENV, clear=False):
             return project_forge_contract.resolve_bootstrap_generation(descriptor)
 
-    def test_resolves_opaque_public_generation_bootstrap_pin(self) -> None:
+    def test_resolves_privacy_safe_public_generation_pin(self) -> None:
         self.assertEqual(
             self.resolve(self.descriptor()),
             {
-                "releaseId": "bootstrap-stable-12",
+                "revision": "a" * 40,
                 "protocolVersion": 12,
-                "catalogVersion": 11,
+                "catalogVersion": 12,
             },
         )
 
-    def test_legacy_v11_pin_is_accepted_only_when_it_matches_protected_config(self) -> None:
+    def test_legacy_v11_pin_is_accepted_only_when_repository_matches_protected_config(self) -> None:
         result = self.resolve(self.legacy_descriptor())
-        self.assertEqual(result["releaseId"], "bootstrap-stable-12")
+        self.assertEqual(result["revision"], "a" * 40)
 
         descriptor = self.legacy_descriptor()
-        descriptor["generation"]["bootstrap"]["commit"] = "b" * 40
+        descriptor["generation"]["bootstrap"]["repository"] = "example/wrong-source"
         with self.assertRaisesRegex(
             project_forge_contract.ProjectForgeContractError,
             "does not match protected Control Plane configuration",
@@ -85,9 +83,9 @@ class ProjectForgeContractTests(unittest.TestCase):
         ):
             self.resolve(descriptor)
 
-    def test_malformed_or_wrong_opaque_bootstrap_pin_fails_closed(self) -> None:
+    def test_malformed_privacy_safe_pin_fails_closed(self) -> None:
         cases = [
-            ("releaseId", "wrong-release"),
+            ("revision", "not-a-revision"),
             ("protocolVersion", 0),
             ("catalogVersion", True),
         ]
@@ -98,9 +96,9 @@ class ProjectForgeContractTests(unittest.TestCase):
                 with self.assertRaises(project_forge_contract.ProjectForgeContractError):
                     self.resolve(descriptor)
 
-    def test_opaque_pin_rejects_source_topology_fields(self) -> None:
+    def test_privacy_safe_pin_rejects_source_topology_fields(self) -> None:
         descriptor = self.descriptor()
-        descriptor["generation"]["bootstrap"]["repository"] = "example/private-bootstrap-source"
+        descriptor["generation"]["bootstrap"]["repository"] = "example/private-source"
         with self.assertRaisesRegex(
             project_forge_contract.ProjectForgeContractError,
             "must not be combined with source repository/commit fields",
@@ -124,7 +122,7 @@ class ProjectForgeContractTests(unittest.TestCase):
                 json.dumps(
                     {
                         "repository": "private-value-not-used-by-public-contract",
-                        "catalogVersion": 11,
+                        "catalogVersion": 12,
                         "protocol": {"version": 12},
                     }
                 ),
@@ -133,15 +131,15 @@ class ProjectForgeContractTests(unittest.TestCase):
             value = project_forge_contract.verify_bootstrap_catalog(
                 root,
                 protocol_version=12,
-                catalog_version=11,
+                catalog_version=12,
             )
-            self.assertEqual(value["catalogVersion"], 11)
+            self.assertEqual(value["catalogVersion"], 12)
 
             with self.assertRaises(project_forge_contract.ProjectForgeContractError):
                 project_forge_contract.verify_bootstrap_catalog(
                     root,
                     protocol_version=12,
-                    catalog_version=12,
+                    catalog_version=11,
                 )
 
     def test_generation_workflow_keeps_private_source_mapping_out_of_public_code(self) -> None:
@@ -150,10 +148,11 @@ class ProjectForgeContractTests(unittest.TestCase):
         verify = "python tools/project_forge_contract.py verify-bootstrap"
         manifest = "remote_generation.py validate-manifest"
         self.assertIn(resolve, workflow)
-        self.assertIn("secrets.BOOTSTRAP_SOURCE_OWNER", workflow)
-        self.assertIn("secrets.BOOTSTRAP_SOURCE_REPOSITORY_NAME", workflow)
-        self.assertIn("secrets.BOOTSTRAP_SOURCE_COMMIT", workflow)
-        self.assertIn("secrets.BOOTSTRAP_RELEASE_ID", workflow)
+        self.assertIn("secrets.BOOTSTRAP_SOURCE_REPOSITORY", workflow)
+        self.assertNotIn("BOOTSTRAP_SOURCE_OWNER", workflow)
+        self.assertNotIn("BOOTSTRAP_SOURCE_REPOSITORY_NAME", workflow)
+        self.assertNotIn("BOOTSTRAP_SOURCE_COMMIT", workflow)
+        self.assertNotIn("BOOTSTRAP_RELEASE_ID", workflow)
         self.assertNotIn("project-forge-bootstrap", workflow)
         self.assertNotIn("bootstrap_commit || 'main'", workflow)
         self.assertLess(workflow.index(resolve), workflow.index(verify))
