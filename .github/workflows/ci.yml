@@ -35,3 +35,14 @@ jobs:
             --policy config/invitation-policy.json
       - name: Unit tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  required:
+    name: required
+    if: ${{ always() }}
+    needs:
+      - validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Control Plane CI
+        shell: bash
+        run: test "${{ needs.validate.result }}" = "success"
