@@ -38,9 +38,13 @@ jobs:
             --event "$GITHUB_EVENT_PATH" \
             --allowed-owners config/allowed-owners.json
 
-      - name: Resolve public accepted Bootstrap generation pin
+      - name: Resolve accepted Bootstrap release
         id: public-contract
         shell: bash
+        env:
+          PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY: ${{ secrets.BOOTSTRAP_SOURCE_OWNER }}/${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY_NAME }}
+          PROJECT_FORGE_BOOTSTRAP_SOURCE_COMMIT: ${{ secrets.BOOTSTRAP_SOURCE_COMMIT }}
+          PROJECT_FORGE_BOOTSTRAP_RELEASE_ID: ${{ secrets.BOOTSTRAP_RELEASE_ID }}
         run: python tools/project_forge_contract.py resolve-bootstrap
 
       - name: Create Bootstrap source installation token
@@ -49,8 +53,8 @@ jobs:
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: mriekki
-          repositories: project-forge-bootstrap
+          owner: ${{ secrets.BOOTSTRAP_SOURCE_OWNER }}
+          repositories: ${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY_NAME }}
           permission-contents: read
 
       - name: Create target installation token
@@ -85,21 +89,20 @@ jobs:
           echo "login=${bot_login}" >> "$GITHUB_OUTPUT"
           echo "email=${bot_id}+${bot_login}@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout accepted Bootstrap control plane
+      - name: Checkout accepted Bootstrap source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: mriekki/project-forge-bootstrap
-          ref: ${{ steps.public-contract.outputs.bootstrap_commit }}
+          repository: ${{ secrets.BOOTSTRAP_SOURCE_OWNER }}/${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY_NAME }}
+          ref: ${{ secrets.BOOTSTRAP_SOURCE_COMMIT }}
           token: ${{ steps.source-token.outputs.token }}
           path: bootstrap
           fetch-depth: 1
 
-      - name: Resolve accepted Bootstrap commit
+      - name: Verify accepted Bootstrap source and catalog
         id: bootstrap
         shell: bash
         env:
-          BOOTSTRAP_REPOSITORY: ${{ steps.public-contract.outputs.bootstrap_repository }}
-          BOOTSTRAP_COMMIT: ${{ steps.public-contract.outputs.bootstrap_commit }}
+          BOOTSTRAP_COMMIT: ${{ secrets.BOOTSTRAP_SOURCE_COMMIT }}
           BOOTSTRAP_PROTOCOL_VERSION: ${{ steps.public-contract.outputs.bootstrap_protocol_version }}
           BOOTSTRAP_CATALOG_VERSION: ${{ steps.public-contract.outputs.bootstrap_catalog_version }}
         run: |
@@ -108,12 +111,11 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
           if [ "$sha" != "$BOOTSTRAP_COMMIT" ]; then
-            echo "Accepted Bootstrap checkout mismatch: expected $BOOTSTRAP_COMMIT, found $sha" >&2
+            echo "Accepted Bootstrap checkout does not match protected source configuration" >&2
             exit 2
           fi
           python tools/project_forge_contract.py verify-bootstrap \
             --root bootstrap \
-            --repository "$BOOTSTRAP_REPOSITORY" \
             --protocol-version "$BOOTSTRAP_PROTOCOL_VERSION" \
             --catalog-version "$BOOTSTRAP_CATALOG_VERSION"
 
