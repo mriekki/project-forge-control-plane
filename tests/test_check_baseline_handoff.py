@@ -37,13 +37,13 @@ def baseline_documents(*, overlap: bool = False) -> dict[str, dict]:
             "profile": "greenfield-project",
             "components": {
                 "core": {
-                    "repository": "mriekki/project-forge-core",
+                    "repository": "example/private-core-source",
                     "commit": "a" * 40,
                     "version": "1.10.0",
                     "distribution": "greenfield-workspace",
                 },
                 "deployment": {
-                    "repository": "mriekki/project-forge-deployment-kit",
+                    "repository": "example/private-deployment-source",
                     "commit": "b" * 40,
                     "distribution": "greenfield-project",
                 },
