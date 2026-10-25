@@ -17,7 +17,7 @@ DEFAULT_DESCRIPTOR_URL = (
     "https://raw.githubusercontent.com/mriekki/project-forge-platform/main/chatgpt/current.json"
 )
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-_RELEASE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 class ProjectForgeContractError(RuntimeError):
@@ -38,28 +38,13 @@ def _load_json_source(source: str) -> dict[str, Any]:
     return value
 
 
-def _private_source_config() -> dict[str, str]:
-    repository = os.getenv("PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY", "")
-    commit = os.getenv("PROJECT_FORGE_BOOTSTRAP_SOURCE_COMMIT", "")
-    release_id = os.getenv("PROJECT_FORGE_BOOTSTRAP_RELEASE_ID", "")
-
-    if not repository or "/" not in repository:
+def _protected_bootstrap_repository() -> str:
+    repository = os.getenv("PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY", "").strip()
+    if not _REPOSITORY_RE.fullmatch(repository):
         raise ProjectForgeContractError(
             "Protected Bootstrap source repository configuration is missing or invalid"
         )
-    if not _SHA_RE.fullmatch(commit):
-        raise ProjectForgeContractError(
-            "Protected Bootstrap source commit configuration must be an exact lowercase Git SHA"
-        )
-    if not _RELEASE_ID_RE.fullmatch(release_id):
-        raise ProjectForgeContractError(
-            "Protected Bootstrap release ID configuration is missing or invalid"
-        )
-    return {
-        "repository": repository,
-        "commit": commit,
-        "releaseId": release_id,
-    }
+    return repository
 
 
 def resolve_bootstrap_generation(descriptor: dict[str, Any]) -> dict[str, Any]:
@@ -80,33 +65,35 @@ def resolve_bootstrap_generation(descriptor: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(catalog_version, int) or isinstance(catalog_version, bool) or catalog_version < 1:
         raise ProjectForgeContractError("generation.bootstrap.catalogVersion must be a positive integer")
 
-    private = _private_source_config()
-    public_release_id = bootstrap.get("releaseId")
+    protected_repository = _protected_bootstrap_repository()
+    revision = bootstrap.get("revision")
 
-    if public_release_id is not None:
-        if not isinstance(public_release_id, str) or not _RELEASE_ID_RE.fullmatch(public_release_id):
-            raise ProjectForgeContractError("generation.bootstrap.releaseId is invalid")
+    if revision is not None:
+        if not isinstance(revision, str) or not _SHA_RE.fullmatch(revision):
+            raise ProjectForgeContractError(
+                "generation.bootstrap.revision must be an exact lowercase 40-character revision"
+            )
         if "repository" in bootstrap or "commit" in bootstrap:
             raise ProjectForgeContractError(
-                "Opaque generation.bootstrap.releaseId must not be combined with source repository/commit fields"
-            )
-        if public_release_id != private["releaseId"]:
-            raise ProjectForgeContractError(
-                "Public Bootstrap release ID does not match protected Control Plane configuration"
+                "Privacy-safe generation.bootstrap.revision must not be combined with source repository/commit fields"
             )
     else:
-        # Transitional compatibility for public contract v11. This path can be removed
-        # after the stable descriptor advances to an opaque release ID.
+        # Transitional compatibility for public contract v11. Remove this branch only
+        # after every supported caller has advanced beyond the legacy descriptor shape.
         repository = bootstrap.get("repository")
         commit = bootstrap.get("commit")
-        if repository != private["repository"] or commit != private["commit"]:
+        if repository != protected_repository:
             raise ProjectForgeContractError(
-                "Legacy public Bootstrap source pin does not match protected Control Plane configuration"
+                "Legacy public Bootstrap repository does not match protected Control Plane configuration"
             )
-        public_release_id = private["releaseId"]
+        if not isinstance(commit, str) or not _SHA_RE.fullmatch(commit):
+            raise ProjectForgeContractError(
+                "Legacy generation.bootstrap.commit must be an exact lowercase 40-character Git SHA"
+            )
+        revision = commit
 
     return {
-        "releaseId": public_release_id,
+        "revision": revision,
         "protocolVersion": protocol_version,
         "catalogVersion": catalog_version,
     }
@@ -154,7 +141,7 @@ def _resolve_command(args: argparse.Namespace) -> int:
     descriptor = _load_json_source(args.descriptor)
     bootstrap = resolve_bootstrap_generation(descriptor)
     values = {
-        "bootstrap_release_id": str(bootstrap["releaseId"]),
+        "bootstrap_revision": str(bootstrap["revision"]),
         "bootstrap_protocol_version": str(bootstrap["protocolVersion"]),
         "bootstrap_catalog_version": str(bootstrap["catalogVersion"]),
     }
