@@ -64,38 +64,91 @@ def _staged_json(root: Path, path: str) -> dict[str, Any]:
     return value
 
 
+def _project_component_metadata(
+    component: str,
+    metadata: dict[str, Any],
+    schema_version: int,
+) -> dict[str, Any]:
+    if schema_version == 1:
+        result = {
+            "revision": metadata.get("commit"),
+            "distribution": metadata.get("distribution"),
+        }
+        if component == "core":
+            result["version"] = metadata.get("version")
+        return result
+    if schema_version == 2:
+        result = {
+            "revision": metadata.get("revision"),
+            "distribution": metadata.get("distribution"),
+        }
+        if component == "core":
+            result["version"] = metadata.get("version")
+        return result
+    raise StagedBaselineError("Unsupported staged PROJECT_FORGE_BASELINE.json schemaVersion")
+
+
+def _component_baseline_metadata(
+    component: str,
+    baseline: dict[str, Any],
+    baseline_name: str,
+) -> dict[str, Any]:
+    schema_version = baseline.get("schemaVersion")
+    if schema_version == 1:
+        if component == "core":
+            return {
+                "revision": baseline.get("coreCommit"),
+                "version": baseline.get("coreVersion"),
+                "distribution": baseline.get("distribution"),
+            }
+        if component == "deployment":
+            return {
+                "revision": baseline.get("deploymentKitCommit"),
+                "distribution": baseline.get("distribution"),
+            }
+    elif schema_version == 2:
+        if baseline.get("component") != component:
+            raise StagedBaselineError(
+                f"Staged {baseline_name} component does not match staged PROJECT_FORGE_BASELINE.json"
+            )
+        result = {
+            "revision": baseline.get("revision"),
+            "distribution": baseline.get("distribution"),
+        }
+        if component == "core":
+            result["version"] = baseline.get("version")
+        return result
+    else:
+        raise StagedBaselineError(f"Unsupported staged {baseline_name} schemaVersion")
+    raise StagedBaselineError(
+        f"Unsupported Project Forge component in staged baseline: {component}"
+    )
+
+
 def _validate_component(
     root: Path,
     component: str,
     project_forge_component: dict[str, Any],
     baseline_name: str,
+    project_schema_version: int,
     global_seen: dict[str, tuple[str, str]],
 ) -> int:
     baseline = _staged_json(root, baseline_name)
-    if baseline.get("schemaVersion") != 1:
-        raise StagedBaselineError(f"Unsupported staged {baseline_name} schemaVersion")
+    if baseline.get("schemaVersion") != project_schema_version:
+        raise StagedBaselineError(
+            f"Staged {baseline_name} schemaVersion does not match staged PROJECT_FORGE_BASELINE.json"
+        )
 
-    if component == "core":
-        fields = {
-            "repository": "coreRepository",
-            "commit": "coreCommit",
-            "version": "coreVersion",
-            "distribution": "distribution",
-        }
-    elif component == "deployment":
-        fields = {
-            "repository": "deploymentKitRepository",
-            "commit": "deploymentKitCommit",
-            "distribution": "distribution",
-        }
-    else:
-        raise StagedBaselineError(f"Unsupported Project Forge component in staged baseline: {component}")
-
-    for project_forge_key, baseline_key in fields.items():
-        expected = project_forge_component.get(project_forge_key)
-        if expected is not None and baseline.get(baseline_key) != expected:
+    expected = _project_component_metadata(
+        component,
+        project_forge_component,
+        project_schema_version,
+    )
+    actual = _component_baseline_metadata(component, baseline, baseline_name)
+    for key, expected_value in expected.items():
+        if expected_value is not None and actual.get(key) != expected_value:
             raise StagedBaselineError(
-                f"Staged {baseline_name} {baseline_key} does not match staged PROJECT_FORGE_BASELINE.json"
+                f"Staged {baseline_name} {key} does not match staged PROJECT_FORGE_BASELINE.json"
             )
 
     managed = baseline.get("managedPaths")
@@ -123,11 +176,11 @@ def _validate_component(
         local_seen.add(relative)
         global_seen[relative] = (component, baseline_name)
 
-        actual = hashlib.sha256(_staged_bytes(root, relative)).hexdigest()
-        if actual != expected_hash:
+        actual_hash = hashlib.sha256(_staged_bytes(root, relative)).hexdigest()
+        if actual_hash != expected_hash:
             raise StagedBaselineError(
                 f"Staged managed file drift in {baseline_name}: {relative}; "
-                f"expected {expected_hash}, found {actual}"
+                f"expected {expected_hash}, found {actual_hash}"
             )
         count += 1
 
@@ -140,7 +193,8 @@ def validate_staged_baselines(root: Path) -> int:
     approved = (manifest.get("generation") or {}).get("project-forge") or {}
     project_forge = _staged_json(root, "PROJECT_FORGE_BASELINE.json")
 
-    if project_forge.get("schemaVersion") != 1:
+    project_schema_version = project_forge.get("schemaVersion")
+    if project_schema_version not in {1, 2}:
         raise StagedBaselineError("Unsupported staged PROJECT_FORGE_BASELINE.json schemaVersion")
     for key in ("package", "version", "profile"):
         if project_forge.get(key) != approved.get(key):
@@ -163,7 +217,14 @@ def validate_staged_baselines(root: Path) -> int:
             baseline_name = "DEPLOYMENT_BASELINE.json"
         else:
             raise StagedBaselineError(f"Unsupported staged Project Forge component: {component}")
-        total += _validate_component(root, component, metadata, baseline_name, global_seen)
+        total += _validate_component(
+            root,
+            component,
+            metadata,
+            baseline_name,
+            project_schema_version,
+            global_seen,
+        )
 
     return total
 
