@@ -21,12 +21,94 @@ jobs:
       - name: Validate invitation
         id: invite
         run: |
-          python tools/invitation.py extract-invite \
+          python tools/onboarding_portal.py validate \
+            --kind invite \
             --event "$GITHUB_EVENT_PATH" \
             --registry config/developers.json
 
+      - name: Explain invalid invitation request
+        if: steps.invite.outputs.valid != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          VALIDATION_ERROR: ${{ steps.invite.outputs.error }}
+        with:
+          script: |
+            const error = process.env.VALIDATION_ERROR || 'Invitation request did not pass validation.';
+            const body = [
+              '# Project Forge invitation request invalid',
+              '',
+              `Reason: ${error}`,
+              '',
+              'No developer authorization was changed.',
+              '',
+              'Use **Issues → New issue → Invite a Project Forge Builder**, enter the exact GitHub username, keep the issue body empty, and submit a fresh issue.',
+              '',
+              'The invitation issue is public. Never paste source code, Project requirements, credentials, tokens, or other private information into it.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed('Invalid Project Forge invitation request; recovery instructions were posted to the issue.');
+
+      - name: Verify invited GitHub user exists
+        if: steps.invite.outputs.valid == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          TARGET_OWNER: ${{ steps.invite.outputs.target_owner }}
+        with:
+          script: |
+            const target = process.env.TARGET_OWNER;
+            try {
+              const { data } = await github.rest.users.getByUsername({ username: target });
+              if (data.type !== 'User') {
+                const body = [
+                  '# Project Forge invitation needs one fix',
+                  '',
+                  `\`${target}\` exists on GitHub but is a **${data.type}**, not a user account.`,
+                  '',
+                  'Project Forge invitations are claimed by the invited GitHub user commenting on this issue, so the target must be a GitHub user account.',
+                  '',
+                  'Create a fresh **Invite a Project Forge Builder** issue with the developer’s exact GitHub username.',
+                  '',
+                  'No developer authorization was changed.',
+                ].join('\n');
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body,
+                });
+                core.setFailed(`Project Forge invitation target is not a GitHub user: ${target}`);
+              }
+            } catch (error) {
+              if (error.status === 404) {
+                const body = [
+                  '# Project Forge invitation needs one fix',
+                  '',
+                  `GitHub user \`${target}\` was not found.`,
+                  '',
+                  'Check the spelling and create a fresh **Invite a Project Forge Builder** issue with the exact GitHub username.',
+                  '',
+                  'No developer authorization was changed.',
+                ].join('\n');
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body,
+                });
+                core.setFailed(`GitHub user not found: ${target}`);
+                return;
+              }
+              throw error;
+            }
+
       - name: Read invitation policy
         id: policy
+        if: steps.invite.outputs.valid == 'true'
         shell: bash
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
@@ -38,6 +120,7 @@ jobs:
 
       - name: Resolve Project Forge Builder app identity
         id: app-identity
+        if: steps.invite.outputs.valid == 'true'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
@@ -46,6 +129,7 @@ jobs:
           permission-contents: read
 
       - name: Publish Project Forge onboarding instructions
+        if: steps.invite.outputs.valid == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           TARGET_OWNER: ${{ steps.invite.outputs.target_owner }}
@@ -59,28 +143,32 @@ jobs:
             const welcomeUrl =
               'https://github.com/mriekki/project-forge-platform/blob/main/WELCOME.md';
             const body = [
-              `# Welcome to Project Forge`,
-              ``,
+              '# Welcome to Project Forge',
+              '',
               `@${target}, you've been invited as a **Project Builder**.`,
-              ``,
-              `## Activate your access`,
-              ``,
-              `**1. Install Project Forge Builder**`,
-              ``,
+              '',
+              '## Activate your access',
+              '',
+              '**1. Install Project Forge Builder**',
+              '',
               `Open the GitHub App and install/approve it for your GitHub account if needed: ${appUrl}`,
-              ``,
-              `For the simplest experience, allow it for all repositories. If it is already installed, do not remove or reinstall it just to continue.`,
-              ``,
-              `**2. Accept this invitation**`,
-              ``,
+              '',
+              'For the simplest experience, allow it for all repositories. For tighter access, selected repositories are supported, but each future Project repository must then be added before Project Forge can operate on it.',
+              '',
+              'If the App is already installed, do not remove or reinstall it just to continue.',
+              '',
+              '**2. Accept this invitation**',
+              '',
               `While signed in as **@${target}**, add a new comment to this issue containing exactly:`,
-              ``,
+              '',
               '`/accept-project-forge`',
-              ``,
-              `Project Forge will verify the rest automatically. You do not need to configure the Control Plane, GitHub Actions, Bootstrap, or App credentials.`,
-              ``,
+              '',
+              'Project Forge will verify identity, App access, authorization, and the public operating contract automatically.',
+              '',
               `Invitation window: **${expiry} days**. To decline instead, comment \`/decline-project-forge\`.`,
-              ``,
+              '',
+              '**Privacy:** this invitation issue is public. Do not paste source code, Project requirements, credentials, tokens, or other private information here.',
+              '',
               `More about Project Forge: ${welcomeUrl}`,
             ].join('\n');
             await github.rest.issues.createComment({
@@ -142,6 +230,7 @@ jobs:
 
       - name: Read invitation policy
         id: test-policy
+        if: steps.test-invite.outcome == 'success'
         shell: bash
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
@@ -153,6 +242,7 @@ jobs:
 
       - name: Resolve Project Forge Builder app identity
         id: test-app-identity
+        if: steps.test-invite.outcome == 'success'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
@@ -161,6 +251,7 @@ jobs:
           permission-contents: read
 
       - name: Publish onboarding simulation and invitation message preview
+        if: steps.test-invite.outcome == 'success'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           TARGET_OWNER: ${{ steps.test-invite.outputs.target_owner }}

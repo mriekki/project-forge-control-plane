@@ -16,7 +16,7 @@ jobs:
   claim:
     if: >-
       startsWith(github.event.issue.title, '[invite-project-forge] ') &&
-      github.event.comment.body == '/accept-project-forge'
+      contains(github.event.comment.body, '/accept-project-forge')
     permissions:
       contents: write
       issues: write
@@ -32,13 +32,52 @@ jobs:
       - name: Validate claim identity and lifetime
         id: claim
         run: |
-          python tools/invitation.py extract-claim \
+          python tools/onboarding_portal.py validate \
+            --kind claim \
             --event "$GITHUB_EVENT_PATH" \
             --registry config/developers.json \
             --policy config/invitation-policy.json
 
+      - name: Explain invalid invitation claim
+        if: steps.claim.outputs.valid != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          VALIDATION_ERROR: ${{ steps.claim.outputs.error }}
+        with:
+          script: |
+            const error = process.env.VALIDATION_ERROR || 'Invitation claim did not pass validation.';
+            const body = [
+              '# Project Forge activation request invalid',
+              '',
+              `Reason: ${error}`,
+              '',
+              'No developer authorization was changed by this request.',
+              '',
+              'Use a new comment containing exactly `/accept-project-forge` while signed in as the GitHub user named in the invitation.',
+              '',
+              'If the invitation expired or the target is already active, ask the Project Forge admin to create a fresh invitation or use `/project-forge-doctor` for an already-active Builder.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed('Invalid Project Forge invitation claim; recovery instructions were posted to the issue.');
+
+      - name: Resolve Project Forge Builder app identity
+        id: app-identity
+        if: steps.claim.outputs.valid == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+
       - name: Verify GitHub App installation
         id: app-token
+        if: steps.claim.outputs.valid == 'true'
         continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
@@ -48,16 +87,21 @@ jobs:
           permission-contents: read
 
       - name: Explain missing App installation
-        if: steps.app-token.outcome != 'success'
+        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome != 'success'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          APP_SLUG: ${{ steps.app-identity.outputs.app-slug }}
         with:
           script: |
+            const appUrl = `https://github.com/apps/${process.env.APP_SLUG}/installations/new`;
             const body = [
               '# Project Forge activation needs one fix',
               '',
               'Your GitHub identity matched the invitation, but Project Forge could not verify its GitHub App installation for this account.',
               '',
-              'Install/approve the **Project Forge Builder** GitHub App for this account, then comment `/accept-project-forge` again.',
+              `Install/approve **Project Forge Builder** here: ${appUrl}`,
+              '',
+              'Then add a new comment containing exactly `/accept-project-forge` on this issue.',
               '',
               'No developer authorization was activated.',
             ].join('\n');
@@ -68,8 +112,14 @@ jobs:
               body,
             });
 
+      - name: Stop activation when App is unavailable
+        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome != 'success'
+        run: |
+          echo "Project Forge Builder App installation is not ready for the invited account."
+          exit 1
+
       - name: Activate developer
-        if: steps.app-token.outcome == 'success'
+        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
         run: |
           python tools/invitation.py activate \
             --registry config/developers.json \
@@ -82,11 +132,14 @@ jobs:
             --allowed-owners config/allowed-owners.json \
             --policy config/invitation-policy.json
 
-      - name: Commit operational registry update
-        if: steps.app-token.outcome == 'success'
+      - name: Commit operational registry update safely
+        id: persist
+        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
+        continue-on-error: true
         env:
           TARGET_OWNER: ${{ steps.claim.outputs.target_owner }}
         run: |
+          set -euo pipefail
           git config user.name "project-forge-control-plane[bot]"
           git config user.email "noreply@github.com"
           git add config/developers.json config/allowed-owners.json
@@ -94,39 +147,48 @@ jobs:
             echo "Registry already reflects the activation."
           else
             git commit -m "Activate Project Forge developer ${TARGET_OWNER}"
+            git fetch origin main
+            git rebase origin/main
+            python tools/invitation.py validate-config \
+              --registry config/developers.json \
+              --allowed-owners config/allowed-owners.json \
+              --policy config/invitation-policy.json
             git push origin HEAD:main
           fi
 
-      - name: Automatically verify public Project Forge contract
-        if: steps.app-token.outcome == 'success'
-        id: contract
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          base="https://raw.githubusercontent.com/mriekki/project-forge-platform/main/"
-          curl --fail --silent --show-error "${base}chatgpt/current.json" -o "$RUNNER_TEMP/current.json"
-          python - "$RUNNER_TEMP/current.json" <<'PY'
-          import hashlib
-          import json
-          import sys
-          import urllib.request
-          from pathlib import Path
+      - name: Explain registry persistence failure
+        if: steps.persist.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const body = [
+              '# Project Forge activation needs administrator attention',
+              '',
+              'Identity and App checks passed, but the Control Plane registry update could not be persisted safely to `main`.',
+              '',
+              'No force-push or history rewrite was attempted.',
+              '',
+              'A Project Forge admin should resolve the Control Plane branch conflict or concurrent update, then ask the invited Builder to comment `/accept-project-forge` again.',
+              '',
+              'Readiness has not been claimed.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed('Project Forge registry persistence failed safely.');
 
-          descriptor = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          if descriptor.get("schemaVersion") != 1 or descriptor.get("channel") != "stable":
-              raise SystemExit("Unsupported public Project Forge bootstrap descriptor")
-          base = "https://raw.githubusercontent.com/mriekki/project-forge-platform/main/"
-          for item in descriptor.get("documents", []):
-              data = urllib.request.urlopen(base + item["path"], timeout=20).read()
-              digest = hashlib.sha256(data).hexdigest()
-              if digest != item["sha256"]:
-                  raise SystemExit(f"Contract hash mismatch: {item['path']}")
-          print(f"Project Forge ChatGPT contract v{descriptor['contractVersion']} verified")
-          PY
+      - name: Automatically verify public Project Forge contract
+        id: contract
+        if: steps.persist.outcome == 'success'
+        continue-on-error: true
+        run: |
+          python tools/public_contract.py
 
       - name: Report Project Forge activation and readiness
-        if: steps.app-token.outcome == 'success'
+        if: steps.persist.outcome == 'success'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           TARGET_OWNER: ${{ steps.claim.outputs.target_owner }}
@@ -164,7 +226,7 @@ jobs:
               '',
               'The public Project Forge contract could not be verified automatically.',
               '',
-              'Resolve the public-contract availability/integrity issue, then comment `/project-forge-doctor` on this issue to retry the readiness check.',
+              'Authorization remains ACTIVE. Resolve the public-contract availability/integrity issue, then comment `/project-forge-doctor` on this issue to retry readiness.',
               '',
               `Project Forge overview: ${welcome}`,
             ];
@@ -187,7 +249,7 @@ jobs:
   test-claim:
     if: >-
       startsWith(github.event.issue.title, '[test-invite-forge]') &&
-      github.event.comment.body == '/accept-project-forge'
+      contains(github.event.comment.body, '/accept-project-forge')
     permissions:
       contents: read
       issues: write
@@ -202,14 +264,48 @@ jobs:
 
       - name: Validate self-test identity and lifetime
         id: test-claim
+        continue-on-error: true
         run: |
           python tools/onboarding_test.py extract-claim \
             --event "$GITHUB_EVENT_PATH" \
             --registry config/developers.json \
             --policy config/invitation-policy.json
 
+      - name: Explain invalid self-test acceptance
+        if: steps.test-claim.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const body = [
+              '# Project Forge onboarding test acceptance invalid',
+              '',
+              'The self-test acceptance did not pass validation. No authorization state was changed.',
+              '',
+              'Add a new comment containing exactly `/accept-project-forge` while signed in as the same active admin who opened this test issue.',
+              '',
+              'If this test expired, create a fresh **Test Project Forge onboarding** issue instead.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            core.setFailed('Invalid Project Forge onboarding self-test acceptance.');
+
+      - name: Resolve Project Forge Builder app identity for test
+        id: test-app-identity
+        if: steps.test-claim.outcome == 'success'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+
       - name: Verify GitHub App installation for test identity
         id: test-app-token
+        if: steps.test-claim.outcome == 'success'
         continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
@@ -220,37 +316,19 @@ jobs:
 
       - name: Verify public Project Forge contract for test
         id: test-contract
+        if: steps.test-claim.outcome == 'success'
         continue-on-error: true
-        shell: bash
         run: |
-          set -euo pipefail
-          base="https://raw.githubusercontent.com/mriekki/project-forge-platform/main/"
-          curl --fail --silent --show-error "${base}chatgpt/current.json" -o "$RUNNER_TEMP/current.json"
-          python - "$RUNNER_TEMP/current.json" <<'PY'
-          import hashlib
-          import json
-          import sys
-          import urllib.request
-          from pathlib import Path
-
-          descriptor = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          if descriptor.get("schemaVersion") != 1 or descriptor.get("channel") != "stable":
-              raise SystemExit("Unsupported public Project Forge bootstrap descriptor")
-          base = "https://raw.githubusercontent.com/mriekki/project-forge-platform/main/"
-          for item in descriptor.get("documents", []):
-              data = urllib.request.urlopen(base + item["path"], timeout=20).read()
-              digest = hashlib.sha256(data).hexdigest()
-              if digest != item["sha256"]:
-                  raise SystemExit(f"Contract hash mismatch: {item['path']}")
-          print(f"Project Forge ChatGPT contract v{descriptor['contractVersion']} verified")
-          PY
+          python tools/public_contract.py
 
       - name: Report onboarding test result
+        if: steps.test-claim.outcome == 'success'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           TARGET_OWNER: ${{ steps.test-claim.outputs.target_owner }}
           APP_OK: ${{ steps.test-app-token.outcome }}
           CONTRACT_OK: ${{ steps.test-contract.outcome }}
+          APP_SLUG: ${{ steps.test-app-identity.outputs.app-slug }}
         with:
           script: |
             const target = process.env.TARGET_OWNER;
@@ -258,6 +336,7 @@ jobs:
             const contract = process.env.CONTRACT_OK === 'success';
             const ready = app && contract;
             const setup = 'https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md';
+            const appUrl = `https://github.com/apps/${process.env.APP_SLUG}/installations/new`;
             const body = [
               ready ? '# TEST READY FOR PROJECT FORGE ✓' : '# Project Forge onboarding test needs attention',
               '',
@@ -272,9 +351,9 @@ jobs:
               '',
               ready
                 ? `The onboarding mechanics are ready to rehearse through the one-time ChatGPT setup: ${setup}`
-                : 'Resolve the failed check above, then comment `/accept-project-forge` again on this test issue.',
+                : `Resolve the failed check above${app ? '' : ` (App: ${appUrl})`}, then add a new comment containing exactly \`/accept-project-forge\`.`,
               '',
-              'A real invitation still requires a separate `[invite-project-forge] <github-owner>` issue and the real invited identity. This test grants no future authorization.',
+              'A real invitation still requires a separate `[invite-project-forge] <github-user>` issue and the real invited identity. This test grants no future authorization.',
             ].join('\n');
             await github.rest.issues.createComment({
               owner: context.repo.owner,

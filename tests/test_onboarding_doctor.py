@@ -112,7 +112,8 @@ class OnboardingDoctorTests(unittest.TestCase):
         self.assertIn("issues:\n    types: [opened]", workflow)
         self.assertIn("[project-forge-doctor] ", workflow)
         self.assertIn("[invite-project-forge] ", workflow)
-        self.assertIn("python tools/onboarding_doctor.py extract", workflow)
+        self.assertIn("python tools/onboarding_portal.py validate", workflow)
+        self.assertIn("--kind doctor", workflow)
         self.assertIn("issue_number: Number(process.env.ISSUE_NUMBER)", workflow)
         self.assertIn("mriekki/project-forge-platform", workflow)
 
