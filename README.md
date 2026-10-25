@@ -2,7 +2,7 @@
 
 Public, credential-isolated orchestration for **Project Forge** onboarding, GitHub-first Project generation, developer authorization, and supported remote update workflows.
 
-Canonical repository identity after the coordinated rename:
+Canonical repository identity:
 
 ```text
 mriekki/project-forge-control-plane
@@ -37,16 +37,14 @@ Builder-facing setup is intentionally concise in `docs/SETUP.md`. Administrator/
 
 ## Ownership model
 
-Canonical reusable engineering sources remain separately owned:
+Reusable Project Forge capabilities are separately owned behind the public Platform and Control Plane boundaries. Public repositories describe capability ownership and compatibility, but do not need to disclose the names of private foundational source repositories.
 
-- `mriekki/project-forge-core` — reusable workflow behavior and Core distribution;
-- `mriekki/project-forge-bootstrap` — Project Discovery, manifest/catalog contracts, and deterministic greenfield generation;
-- `mriekki/project-forge-deployment-kit` — reusable deployment mechanics;
-- `mriekki/project-forge-adoption-kit` — existing-repository adoption behavior;
-- `mriekki/project-forge-platform` / public `@mriekki/project-forge` — exact accepted reusable-component assembly, consumer delivery, and public ChatGPT bootstrap contract;
-- `mriekki/project-forge-control-plane` — secure cross-account authorization and GitHub orchestration.
+- the public **Project Forge Platform** owns the `@mriekki/project-forge` distribution and public ChatGPT contract;
+- this public **Project Forge Control Plane** owns invitation/authorization and GitHub-first orchestration;
+- private foundational sources own reusable workflow behavior, discovery/generation logic, deployment mechanics, and existing-repository adoption behavior;
+- generated Projects own their product scope, architecture, code/tests, documentation, accepted baselines, deployment facts, and Git/PR/CI state.
 
-Each Builder owns their own Project repositories. This public Control Plane contains only safe request/orchestration and developer-authorization metadata; it must not contain private Project definitions, GitHub App private keys, PATs, or other credentials.
+Each Builder owns their own Project repositories. This public Control Plane contains only safe request/orchestration and developer-authorization metadata; it must not contain private Project definitions, foundational source topology, GitHub App private keys, PATs, or other credentials.
 
 ## Developer authorization
 
@@ -84,7 +82,7 @@ Remote Core-sync request:
 
 For both request types, the issue body must be empty. Private product definitions, baseline details, source code, and secrets stay in the target repository.
 
-The request author must match the target owner and be ACTIVE for the relevant capability. Foundational/platform repositories are never valid generation or generic Core-sync targets.
+The request author must match the target owner and be ACTIVE for the relevant capability. The `project-forge-*` repository namespace is reserved and is never a valid generation or generic Core-sync target.
 
 The approved `PROJECT_BOOTSTRAP.json` stays private in a generation target. `CORE_BASELINE.json` stays private in a Core-sync target. Workflows read those files only after minting a short-lived GitHub App installation token scoped to the exact repository.
 
@@ -93,20 +91,21 @@ The approved `PROJECT_BOOTSTRAP.json` stays private in a generation target. `COR
 The `[generate-project]` workflow:
 
 1. validates the authorized, owner-authored, empty-body request;
-2. reads and validates the private target `PROJECT_BOOTSTRAP.json`;
-3. obtains a Bootstrap-only source token and an exact-target token;
-4. resolves/verifies the exact public `@mriekki/project-forge` package selected by the approved manifest;
-5. runs Bootstrap's canonical deterministic generation path;
-6. validates generated baselines and managed-file integrity; and
-7. publishes only the validated generated tree without force-pushing.
+2. resolves the accepted private Bootstrap source through protected Actions configuration;
+3. reads and validates the private target `PROJECT_BOOTSTRAP.json`;
+4. obtains a source-only token and an exact-target token;
+5. resolves/verifies the exact public `@mriekki/project-forge` package selected by the approved manifest;
+6. runs the canonical deterministic generation path;
+7. validates generated baselines and managed-file integrity; and
+8. publishes only the validated generated tree without force-pushing.
 
-Normal approved discovery may use `generation.project-forge.integrity: "registry"`. Humans approve the exact package/version/profile, not npm hash plumbing. Bootstrap resolves registry metadata to the **resolved exact SHA-512 integrity** at the generation boundary, verifies it before reusable mutation, and records that exact value in generated provenance.
+Normal approved discovery may use `generation.project-forge.integrity: "registry"`. Humans approve the exact package/version/profile, not npm hash plumbing. The generation boundary resolves registry metadata to the **resolved exact SHA-512 integrity**, verifies it before reusable mutation, and records that exact value in generated provenance.
 
-A missing package/version, integrity mismatch, invalid profile, managed-path conflict, unavailable required access, or failed generation is a stop condition. The workflow never silently substitutes another package, source commit, or destination.
+A missing package/version, integrity mismatch, invalid profile, managed-path conflict, unavailable required access, or failed generation is a stop condition. The workflow never silently substitutes another package, source revision, or destination.
 
 ## Remote Core sync
 
-The `[sync-core]` workflow remains the narrower Core-specific path for generated consumers that still use Core-specific sync. It validates current baseline integrity, creates a new non-force branch when needed, opens a consumer PR, and reports success only after target PR checks are green. Merge remains a human decision in the consumer repository.
+The `[sync-core]` workflow remains the narrower Core-specific compatibility path for generated consumers that still use Core-specific sync. The accepted private source is resolved through protected Actions configuration. The workflow validates current baseline integrity, creates a new non-force branch when needed, opens a consumer PR, and reports success only after target PR checks are green. Merge remains a human decision in the consumer repository.
 
 ## GitHub App and setup
 
