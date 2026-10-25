@@ -18,8 +18,10 @@ If the username is wrong, stop and ask the Project Forge admin for a fresh invit
 
 Use the **Project Forge Builder** GitHub App link in the invitation issue and install/approve it for your GitHub account if needed.
 
-- **Simplest:** allow the App for all repositories in your GitHub account.
-- **Tighter access:** select repositories. If you do this, each future Project repository must be added before Project Forge can operate on it.
+- **Recommended — least privilege:** select only the repositories Project Forge should operate on. Add each future Project repository to the App installation before generation or update operations need it.
+- **Convenience option:** allow the App for all repositories in your GitHub account if you prefer not to manage repository selection as Projects are created.
+
+Project Forge workflows still mint short-lived tokens scoped to the exact repository required by each operation. Selecting repositories additionally narrows the App installation itself.
 
 If the App is already installed, do not remove or reinstall it just to continue.
 

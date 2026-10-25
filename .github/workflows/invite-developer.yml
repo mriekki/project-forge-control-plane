@@ -153,7 +153,7 @@ jobs:
               '',
               `Open the GitHub App and install/approve it for your GitHub account if needed: ${appUrl}`,
               '',
-              'For the simplest experience, allow it for all repositories. For tighter access, selected repositories are supported, but each future Project repository must then be added before Project Forge can operate on it.',
+              'Recommended: select only repositories Project Forge should operate on, and add each future Project repository before generation or update operations need it. Allowing all repositories remains a convenience option if you prefer not to manage repository selection.',
               '',
               'If the App is already installed, do not remove or reinstall it just to continue.',
               '',
