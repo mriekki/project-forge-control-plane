@@ -25,6 +25,9 @@ REQUIRED_DOCUMENTS = {
     "USER_PROFILE.schema.json",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
+PROFILE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 
 
 class PublicContractError(RuntimeError):
@@ -43,15 +46,19 @@ def _read_json(source: str) -> dict[str, Any]:
     return value
 
 
+def _positive_int(value: object, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise PublicContractError(f"{label} must be a positive integer")
+    return value
+
+
 def validate_descriptor(descriptor: dict[str, Any]) -> list[dict[str, str]]:
     if descriptor.get("schemaVersion") != 1:
         raise PublicContractError("Unsupported public contract schemaVersion")
     if descriptor.get("channel") != "stable":
         raise PublicContractError("Public contract channel must be stable")
 
-    version = descriptor.get("contractVersion")
-    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
-        raise PublicContractError("contractVersion must be a positive integer")
+    version = _positive_int(descriptor.get("contractVersion"), "contractVersion")
     snapshot = descriptor.get("snapshotPath")
     expected_snapshot = f"chatgpt/contracts/v{version}"
     if snapshot != expected_snapshot:
@@ -91,12 +98,88 @@ def validate_descriptor(descriptor: dict[str, Any]) -> list[dict[str, str]]:
     return documents
 
 
+def validate_generation_descriptor(descriptor: dict[str, Any]) -> dict[str, Any]:
+    control_plane = descriptor.get("controlPlane")
+    if not isinstance(control_plane, dict):
+        raise PublicContractError("controlPlane must be an object")
+    if control_plane.get("repository") != "mriekki/project-forge-control-plane":
+        raise PublicContractError("Unexpected public Control Plane repository")
+
+    generation = descriptor.get("generation")
+    if not isinstance(generation, dict):
+        raise PublicContractError("generation must be an object")
+    if generation.get("manifestFilename") != "PROJECT_BOOTSTRAP.json":
+        raise PublicContractError("generation.manifestFilename must be PROJECT_BOOTSTRAP.json")
+
+    bootstrap = generation.get("bootstrap")
+    if not isinstance(bootstrap, dict):
+        raise PublicContractError("generation.bootstrap must be an object")
+    forbidden = {
+        "repository",
+        "commit",
+        "sourceRepository",
+        "sourceRepositoryUrl",
+    }
+    leaked = sorted(forbidden & set(bootstrap))
+    if leaked:
+        raise PublicContractError(
+            "generation.bootstrap must not expose private source topology fields: "
+            + ", ".join(leaked)
+        )
+
+    revision = bootstrap.get("revision")
+    if not isinstance(revision, str) or not SHA40_RE.fullmatch(revision):
+        raise PublicContractError(
+            "generation.bootstrap.revision must be an exact lowercase 40-character revision"
+        )
+    protocol_version = _positive_int(
+        bootstrap.get("protocolVersion"),
+        "generation.bootstrap.protocolVersion",
+    )
+    catalog_version = _positive_int(
+        bootstrap.get("catalogVersion"),
+        "generation.bootstrap.catalogVersion",
+    )
+
+    if generation.get("package") != "@mriekki/project-forge":
+        raise PublicContractError(
+            "generation.package must be @mriekki/project-forge"
+        )
+    package_version = generation.get("packageVersion")
+    if not isinstance(package_version, str) or not SEMVER_RE.fullmatch(package_version):
+        raise PublicContractError(
+            "generation.packageVersion must be one exact semantic version"
+        )
+    profile = generation.get("profile")
+    if not isinstance(profile, str) or not PROFILE_RE.fullmatch(profile):
+        raise PublicContractError("generation.profile must be a canonical profile identifier")
+
+    legacy_protocol = generation.get("bootstrapProtocolVersion")
+    if legacy_protocol != protocol_version:
+        raise PublicContractError(
+            "generation.bootstrapProtocolVersion must match generation.bootstrap.protocolVersion"
+        )
+
+    if descriptor.get("bootstrapUrl") != DEFAULT_DESCRIPTOR_URL:
+        raise PublicContractError("bootstrapUrl must point to the canonical stable descriptor")
+
+    return {
+        "bootstrapRevision": revision,
+        "bootstrapProtocolVersion": protocol_version,
+        "bootstrapCatalogVersion": catalog_version,
+        "package": generation["package"],
+        "packageVersion": package_version,
+        "profile": profile,
+    }
+
+
 def verify_public_contract(
     descriptor: dict[str, Any],
     *,
     base_url: str = DEFAULT_BASE_URL,
 ) -> int:
     documents = validate_descriptor(descriptor)
+    validate_generation_descriptor(descriptor)
     for item in documents:
         with urllib.request.urlopen(base_url + item["path"], timeout=20) as response:
             data = response.read()
