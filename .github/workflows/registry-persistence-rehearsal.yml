@@ -44,7 +44,7 @@ jobs:
               try {
                 await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch}` });
               } catch (error) {
-                if (error.status !== 422 && error.status !== 404) throw error;
+                if (error.status !== 404) throw error;
               }
             }
 
