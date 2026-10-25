@@ -18,7 +18,7 @@ jobs:
       startsWith(github.event.issue.title, '[invite-project-forge] ') &&
       contains(github.event.comment.body, '/accept-project-forge')
     permissions:
-      contents: write
+      contents: read
       issues: write
     runs-on: ubuntu-latest
     steps:
@@ -118,6 +118,24 @@ jobs:
           echo "Project Forge Builder App installation is not ready for the invited account."
           exit 1
 
+      - name: Create Control Plane registry persistence token
+        id: registry-token
+        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Re-authenticate Control Plane checkout for registry persistence
+        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          token: ${{ steps.registry-token.outputs.token }}
+
       - name: Activate developer
         if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
         run: |
@@ -140,9 +158,15 @@ jobs:
           TARGET_OWNER: ${{ steps.claim.outputs.target_owner }}
         run: |
           set -euo pipefail
-          git config user.name "project-forge-control-plane[bot]"
+          git config user.name "${{ steps.registry-token.outputs.app-slug }}[bot]"
           git config user.email "noreply@github.com"
           git add config/developers.json config/allowed-owners.json
+          unexpected="$(git diff --cached --name-only | grep -Ev '^(config/developers\.json|config/allowed-owners\.json)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Refusing unexpected staged registry paths:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
           if git diff --cached --quiet; then
             echo "Registry already reflects the activation."
           else
@@ -168,7 +192,7 @@ jobs:
               '',
               'No force-push or history rewrite was attempted.',
               '',
-              'A Project Forge admin should resolve the Control Plane branch conflict or concurrent update, then ask the invited Builder to comment `/accept-project-forge` again.',
+              'A Project Forge admin should resolve the Control Plane branch conflict or App/ruleset configuration, then ask the invited Builder to comment `/accept-project-forge` again.',
               '',
               'Readiness has not been claimed.',
             ].join('\n');
