@@ -169,7 +169,7 @@ class RequestTests(unittest.TestCase):
         self.assertIn('integrity: "registry"', admin_setup)
         self.assertIn("Humans are not expected to discover or paste npm integrity metadata", admin_setup)
         self.assertIn("separately owned", readme)
-        self.assertIn("protected Actions secrets", admin_setup)
+        self.assertIn("protected source-repository mappings", admin_setup)
 
     def test_core_sync_workflow_is_scoped_and_non_force(self) -> None:
         workflow = (ROOT / ".github/workflows/sync-core.yml").read_text(encoding="utf-8")
