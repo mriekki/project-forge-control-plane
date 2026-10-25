@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 import unittest
 
 
@@ -50,11 +49,14 @@ class ControlPlaneGovernanceTests(unittest.TestCase):
         self.assertNotIn("config/developers.json", workflow)
         self.assertNotIn("config/allowed-owners.json", workflow)
 
-    def test_governance_document_keeps_bypass_narrow(self):
+    def test_governance_document_separates_integrity_from_change_control(self):
         doc = (ROOT / "docs" / "GITHUB_GOVERNANCE.md").read_text(encoding="utf-8")
+        self.assertIn("Integrity ruleset — no bypass actors", doc)
+        self.assertIn("Change-control ruleset — one exact App bypass", doc)
         self.assertIn("CI / required", doc)
         self.assertIn("Project Forge Builder", doc)
-        self.assertIn("do not grant a repository-role, administrator, or generic GitHub Actions bypass", doc)
+        self.assertIn("no bypass actors at all", doc)
+        self.assertIn("not grant a repository-role, administrator, individual-user, or generic GitHub Actions bypass", doc)
         self.assertIn("config/developers.json", doc)
         self.assertIn("config/allowed-owners.json", doc)
         self.assertIn("Registry Persistence Rehearsal", doc)
