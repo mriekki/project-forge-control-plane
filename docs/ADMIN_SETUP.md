@@ -66,9 +66,12 @@ When permissions are expanded on an existing App installation, GitHub may requir
 
 ## Installations
 
-Install **Project Forge Builder** on the Control Plane owner account and on each approved Builder account. For the smoothest Builder experience, allow it for all repositories in the Builder account. Each workflow still mints tokens scoped to the exact repositories required by that run.
+Install **Project Forge Builder** on the Control Plane owner account and on each approved Builder account.
 
-If a Builder selects repositories instead of all repositories, every newly created Project repository must be added before generation/update operations can use it.
+- **Recommended — least privilege:** select only repositories that Project Forge should operate on. Add a newly created Project repository to the installation before generation or update operations need it.
+- **Convenience option:** allow all repositories when the Builder explicitly prefers not to manage repository selection as Projects are created.
+
+Each workflow still mints a short-lived installation token scoped to the exact repository required by that run. Selected-repository installation provides an additional outer authorization boundary and reduces the App installation's standing scope.
 
 The invitation workflow derives the public installation URL from the App slug returned by `actions/create-github-app-token`; no separately maintained installation-link setting is required.
 
@@ -103,7 +106,7 @@ The claim workflow verifies identity, invitation lifetime, and Project Forge Bui
 
 The invited owner can decline with `/decline-project-forge`. Unclaimed invitations expire after the configured claim window.
 
-Successful activation automatically verifies the public Project Forge ChatGPT contract. `/project-forge-doctor` remains the retry/diagnostic path if readiness later needs attention.
+Successful activation automatically verifies the public Project Forge ChatGPT contract. That readiness verification includes the complete immutable contract snapshot plus the canonical Control Plane identity and exact privacy-safe generation tuple: Bootstrap revision/protocol/catalog, public package/version, and profile. `/project-forge-doctor` remains the retry/diagnostic path if readiness later needs attention.
 
 ## Admin onboarding self-test
 
