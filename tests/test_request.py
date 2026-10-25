@@ -43,10 +43,7 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(values["request_author"], "mriekki")
 
     def test_public_issue_body_must_be_empty(self) -> None:
-        for body in (
-            '{"state":"approved"}',
-            "private product definition",
-        ):
+        for body in ('{"state":"approved"}', "private product definition"):
             with self.subTest(body=body):
                 with self.assertRaises(request.RequestError):
                     request.parse_request(self.event(body=body), {"mriekki"})
@@ -77,25 +74,15 @@ class RequestTests(unittest.TestCase):
         with self.assertRaises(request.RequestError):
             request.parse_sync_request(sync_event, {"mriekki"})
 
-    def test_foundational_repository_is_rejected(self) -> None:
-        repositories = [
-            "project-forge-core",
-            "project-forge-bootstrap",
-            "project-forge-adoption-kit",
-            "project-forge-control-plane",
-            "project-forge-deployment-kit",
-            "project-forge-platform",
-            "family-meal-planner",
-        ]
-
-        for repository in repositories:
+    def test_project_forge_repository_namespace_is_reserved(self) -> None:
+        for repository in ("project-forge-system", "Project-Forge-Internal"):
             for prefix, parser in (
                 ("[generate-project]", request.parse_request),
                 ("[sync-core]", request.parse_sync_request),
             ):
                 title = f"{prefix} mriekki/{repository}"
                 with self.subTest(title=title):
-                    with self.assertRaises(request.RequestError):
+                    with self.assertRaisesRegex(request.RequestError, "reserved Project Forge repository namespace"):
                         parser(self.event(title=title), {"mriekki"})
 
     def test_title_must_be_exact_owner_repo_shape(self) -> None:
@@ -133,8 +120,9 @@ class RequestTests(unittest.TestCase):
         self.assertIn("remote_generation.py validate-manifest", workflow)
         self.assertIn("generate_snapshot.py", workflow)
         self.assertIn("permission-workflows: write", workflow)
-        self.assertIn("repositories: project-forge-bootstrap", workflow)
-        self.assertIn("repository: mriekki/project-forge-bootstrap", workflow)
+        self.assertIn("secrets.BOOTSTRAP_SOURCE_REPOSITORY", workflow)
+        self.assertIn("steps.bootstrap-source.outputs.name", workflow)
+        self.assertNotIn("project-forge-bootstrap", workflow)
         self.assertNotIn(RETIRED_AUTOMATION_TOKEN, workflow)
         self.assertNotIn("--force", workflow)
 
@@ -168,8 +156,6 @@ class RequestTests(unittest.TestCase):
         self.assertNotIn("Checkout pinned Deployment Kit source", workflow)
         self.assertNotIn("--core-path", workflow)
         self.assertNotIn("--deployment-kit-path", workflow)
-        self.assertNotIn("project-forge-agentic-core", workflow)
-        self.assertNotIn("project-forge-project-deployment-kit", workflow)
         self.assertNotIn("PROJECT_FORGE_CORE_READ_TOKEN", workflow)
         self.assertNotIn(RETIRED_AUTOMATION_TOKEN, workflow)
 
@@ -182,19 +168,16 @@ class RequestTests(unittest.TestCase):
         self.assertNotIn("approved SHA-512 integrity", readme)
         self.assertIn('integrity: "registry"', admin_setup)
         self.assertIn("Humans are not expected to discover or paste npm integrity metadata", admin_setup)
-        self.assertIn("mriekki/project-forge-core", readme)
-        self.assertIn("mriekki/project-forge-bootstrap", readme)
-        self.assertIn("mriekki/project-forge-deployment-kit", readme)
-        self.assertIn("mriekki/project-forge-adoption-kit", readme)
-        self.assertIn("mriekki/project-forge-platform", readme)
-        self.assertIn("mriekki/project-forge-bootstrap", admin_setup)
+        self.assertIn("separately owned", readme)
+        self.assertIn("protected Actions secrets", admin_setup)
 
     def test_core_sync_workflow_is_scoped_and_non_force(self) -> None:
         workflow = (ROOT / ".github/workflows/sync-core.yml").read_text(encoding="utf-8")
         self.assertIn("startsWith(github.event.issue.title, '[sync-core] ')", workflow)
         self.assertIn("--request-type sync-core", workflow)
-        self.assertIn("repositories: project-forge-core", workflow)
-        self.assertIn("repository: mriekki/project-forge-core", workflow)
+        self.assertIn("secrets.CORE_SOURCE_REPOSITORY", workflow)
+        self.assertIn("steps.core-source.outputs.name", workflow)
+        self.assertNotIn("project-forge-core", workflow)
         self.assertIn("permission-contents: write", workflow)
         self.assertIn("permission-workflows: write", workflow)
         self.assertIn("permission-pull-requests: write", workflow)
