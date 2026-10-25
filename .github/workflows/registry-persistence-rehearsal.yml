@@ -1,0 +1,53 @@
+name: Registry Persistence Rehearsal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create exact-repository Project Forge Builder token
+        id: registry-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Rehearse bounded repository write on an ephemeral branch
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          github-token: ${{ steps.registry-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = `project-forge-registry-rehearsal-${context.runId}-${context.runAttempt}`;
+            const main = await github.rest.git.getRef({ owner, repo, ref: 'heads/main' });
+            try {
+              await github.rest.git.createRef({
+                owner,
+                repo,
+                ref: `refs/heads/${branch}`,
+                sha: main.data.object.sha,
+              });
+              const created = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+              if (created.data.object.sha !== main.data.object.sha) {
+                core.setFailed('Rehearsal branch did not point at the expected main commit.');
+              }
+            } finally {
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch}` });
+              } catch (error) {
+                if (error.status !== 422 && error.status !== 404) throw error;
+              }
+            }
+
+      - name: Report bounded rehearsal identity
+        run: |
+          echo "Registry persistence rehearsal used ${{ steps.registry-token.outputs.app-slug }}[bot] with exact-repository contents:write and left main unchanged."
