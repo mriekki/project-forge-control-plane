@@ -28,13 +28,21 @@ jobs:
           set -euo pipefail
           gh api --paginate \
             "/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" \
-            --jq '.[] | select(.pull_request == null) | {number, title, createdAt: .created_at}' \
+            --jq '.[] | select(.pull_request == null) | {number, title, body, createdAt: .created_at}' \
             | jq -s '.' > "$RUNNER_TEMP/open-issues.json"
+
+      - name: Normalize persisted invitation state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/onboarding_issue_state.py normalize-issues \
+            --issues "$RUNNER_TEMP/open-issues.json" \
+            --output "$RUNNER_TEMP/normalized-open-issues.json"
 
       - name: Resolve expired still-pending invitation issues
         run: |
           python tools/onboarding_portal.py list-expired-pending \
-            --issues "$RUNNER_TEMP/open-issues.json" \
+            --issues "$RUNNER_TEMP/normalized-open-issues.json" \
             --registry config/developers.json \
             --policy config/invitation-policy.json > "$RUNNER_TEMP/expired-issues.txt"
 
