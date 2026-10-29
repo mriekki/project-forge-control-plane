@@ -19,13 +19,13 @@ What is true about this Project?
 
 An ACTIVE Project Forge admin opens **Issues → New issue → Invite a Project Forge Builder** and enters the developer's exact GitHub username.
 
-The resulting public issue is:
+The issue is initially submitted with the machine trigger:
 
 ```text
 [invite-project-forge] <github-user>
 ```
 
-The issue body must be empty.
+The issue body must be empty at submission. That preserves the public-input safety boundary: the admin supplies only the GitHub identity, with no Project details, credentials, or other free-form invitation state.
 
 Before publishing the invitation instructions, the Control Plane verifies:
 
@@ -35,6 +35,14 @@ Before publishing the invitation instructions, the Control Plane verifies:
 - the target exists on GitHub;
 - the target is a GitHub **user**, not an organization;
 - the target is not already ACTIVE.
+
+After those checks pass, the workflow persists a small hidden machine-readable onboarding marker in the issue body and changes the visible title to:
+
+```text
+You're invited to Project Forge
+```
+
+The persisted marker contains only the already-validated public GitHub identity and invitation kind. It is workflow-written and rendered as an HTML comment, so the visible issue and GitHub notification subject remain human-facing. Acceptance, decline, doctor retry, and expiry logic resolve the invitation from this persisted state rather than depending on the visible title.
 
 The invitation issue then gives the Builder only two required actions:
 
@@ -50,6 +58,7 @@ The issue itself is the onboarding portal. A forwarded issue URL does not grant 
 A claim is valid only when all of these are true:
 
 - the invitation is still pending;
+- the persisted onboarding state resolves a valid invited GitHub user;
 - the original inviter remains authorized;
 - the claim is within `config/invitation-policy.json`;
 - the commenter exactly matches the invited GitHub user;
@@ -133,11 +142,19 @@ The workflow remains fail-closed. Actionable issue guidance does not relax valid
 
 ## Admin onboarding self-test
 
-An ACTIVE admin may open **Test Project Forge onboarding**:
+An ACTIVE admin may open **Test Project Forge onboarding** with the machine trigger:
 
 ```text
 [test-invite-forge]
 ```
+
+After validation, the workflow changes the visible title to:
+
+```text
+Project Forge onboarding test
+```
+
+and persists the same kind of hidden, workflow-written state marker used by real invitations. This keeps the self-test notification subject human-facing while preserving the same acceptance-path mechanics.
 
 The zero-input self-test is self-only and non-authorizing. It verifies the current onboarding path without:
 
