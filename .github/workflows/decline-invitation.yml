@@ -11,9 +11,10 @@ permissions:
 jobs:
   decline:
     if: >-
-      contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
-      contains(github.event.issue.body, '"kind":"invite"') &&
-      contains(github.event.comment.body, '/decline-project-forge')
+      (((contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+         contains(github.event.issue.body, '"kind":"invite"')) ||
+        startsWith(github.event.issue.title, '[invite-project-forge] ')) &&
+       contains(github.event.comment.body, '/decline-project-forge'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -29,10 +30,14 @@ jobs:
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/project-forge-decline-event.json"
-          python tools/onboarding_issue_state.py normalize-event \
-            --kind invite \
-            --event "$GITHUB_EVENT_PATH" \
-            --output "$output"
+          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+            python tools/onboarding_issue_state.py normalize-event \
+              --kind invite \
+              --event "$GITHUB_EVENT_PATH" \
+              --output "$output"
+          else
+            cp "$GITHUB_EVENT_PATH" "$output"
+          fi
           echo "path=$output" >> "$GITHUB_OUTPUT"
 
       - name: Validate pending invitation decline
