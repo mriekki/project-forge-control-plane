@@ -15,9 +15,10 @@ concurrency:
 jobs:
   claim:
     if: >-
-      contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
-      contains(github.event.issue.body, '"kind":"invite"') &&
-      contains(github.event.comment.body, '/accept-project-forge')
+      (((contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+         contains(github.event.issue.body, '"kind":"invite"')) ||
+        startsWith(github.event.issue.title, '[invite-project-forge] ')) &&
+       contains(github.event.comment.body, '/accept-project-forge'))
     permissions:
       contents: read
       issues: write
@@ -36,10 +37,14 @@ jobs:
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/project-forge-invitation-event.json"
-          python tools/onboarding_issue_state.py normalize-event \
-            --kind invite \
-            --event "$GITHUB_EVENT_PATH" \
-            --output "$output"
+          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+            python tools/onboarding_issue_state.py normalize-event \
+              --kind invite \
+              --event "$GITHUB_EVENT_PATH" \
+              --output "$output"
+          else
+            cp "$GITHUB_EVENT_PATH" "$output"
+          fi
           echo "path=$output" >> "$GITHUB_OUTPUT"
 
       - name: Validate claim identity and lifetime
@@ -285,9 +290,10 @@ jobs:
 
   test-claim:
     if: >-
-      contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
-      contains(github.event.issue.body, '"kind":"test-invite"') &&
-      contains(github.event.comment.body, '/accept-project-forge')
+      (((contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+         contains(github.event.issue.body, '"kind":"test-invite"')) ||
+        startsWith(github.event.issue.title, '[test-invite-forge]')) &&
+       contains(github.event.comment.body, '/accept-project-forge'))
     permissions:
       contents: read
       issues: write
@@ -306,10 +312,14 @@ jobs:
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/project-forge-test-invitation-event.json"
-          python tools/onboarding_issue_state.py normalize-event \
-            --kind test-invite \
-            --event "$GITHUB_EVENT_PATH" \
-            --output "$output"
+          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+            python tools/onboarding_issue_state.py normalize-event \
+              --kind test-invite \
+              --event "$GITHUB_EVENT_PATH" \
+              --output "$output"
+          else
+            cp "$GITHUB_EVENT_PATH" "$output"
+          fi
           echo "path=$output" >> "$GITHUB_OUTPUT"
 
       - name: Validate self-test identity and lifetime
