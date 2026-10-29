@@ -17,7 +17,9 @@ jobs:
        startsWith(github.event.issue.title, '[project-forge-doctor] ')) ||
       (github.event_name == 'issue_comment' &&
        contains(github.event.comment.body, '/project-forge-doctor') &&
-       (startsWith(github.event.issue.title, '[invite-project-forge] ') ||
+       (((contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+          contains(github.event.issue.body, '"kind":"invite"')) ||
+         startsWith(github.event.issue.title, '[invite-project-forge] ')) ||
         startsWith(github.event.issue.title, '[project-forge-doctor] ')))
     runs-on: ubuntu-latest
     steps:
@@ -28,12 +30,28 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Normalize invitation issue state when needed
+        id: normalized-event
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/project-forge-doctor-event.json"
+          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+            python tools/onboarding_issue_state.py normalize-event \
+              --kind invite \
+              --event "$GITHUB_EVENT_PATH" \
+              --output "$output"
+          else
+            cp "$GITHUB_EVENT_PATH" "$output"
+          fi
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+
       - name: Validate doctor request
         id: doctor
         run: |
           python tools/onboarding_portal.py validate \
             --kind doctor \
-            --event "$GITHUB_EVENT_PATH" \
+            --event "${{ steps.normalized-event.outputs.path }}" \
             --registry config/developers.json
 
       - name: Explain invalid doctor request

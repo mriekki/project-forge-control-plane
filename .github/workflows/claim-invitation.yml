@@ -15,8 +15,10 @@ concurrency:
 jobs:
   claim:
     if: >-
-      startsWith(github.event.issue.title, '[invite-project-forge] ') &&
-      contains(github.event.comment.body, '/accept-project-forge')
+      (((contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+         contains(github.event.issue.body, '"kind":"invite"')) ||
+        startsWith(github.event.issue.title, '[invite-project-forge] ')) &&
+       contains(github.event.comment.body, '/accept-project-forge'))
     permissions:
       contents: read
       issues: write
@@ -29,12 +31,28 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Normalize persisted invitation state
+        id: normalized-event
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/project-forge-invitation-event.json"
+          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+            python tools/onboarding_issue_state.py normalize-event \
+              --kind invite \
+              --event "$GITHUB_EVENT_PATH" \
+              --output "$output"
+          else
+            cp "$GITHUB_EVENT_PATH" "$output"
+          fi
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+
       - name: Validate claim identity and lifetime
         id: claim
         run: |
           python tools/onboarding_portal.py validate \
             --kind claim \
-            --event "$GITHUB_EVENT_PATH" \
+            --event "${{ steps.normalized-event.outputs.path }}" \
             --registry config/developers.json \
             --policy config/invitation-policy.json
 
@@ -272,8 +290,10 @@ jobs:
 
   test-claim:
     if: >-
-      startsWith(github.event.issue.title, '[test-invite-forge]') &&
-      contains(github.event.comment.body, '/accept-project-forge')
+      (((contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+         contains(github.event.issue.body, '"kind":"test-invite"')) ||
+        startsWith(github.event.issue.title, '[test-invite-forge]')) &&
+       contains(github.event.comment.body, '/accept-project-forge'))
     permissions:
       contents: read
       issues: write
@@ -286,12 +306,28 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Normalize persisted self-test state
+        id: normalized-test-event
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/project-forge-test-invitation-event.json"
+          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+            python tools/onboarding_issue_state.py normalize-event \
+              --kind test-invite \
+              --event "$GITHUB_EVENT_PATH" \
+              --output "$output"
+          else
+            cp "$GITHUB_EVENT_PATH" "$output"
+          fi
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+
       - name: Validate self-test identity and lifetime
         id: test-claim
         continue-on-error: true
         run: |
           python tools/onboarding_test.py extract-claim \
-            --event "$GITHUB_EVENT_PATH" \
+            --event "${{ steps.normalized-test-event.outputs.path }}" \
             --registry config/developers.json \
             --policy config/invitation-policy.json
 
