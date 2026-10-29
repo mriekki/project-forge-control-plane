@@ -11,7 +11,8 @@ permissions:
 jobs:
   decline:
     if: >-
-      startsWith(github.event.issue.title, '[invite-project-forge] ') &&
+      contains(github.event.issue.body, 'project-forge-onboarding-state:v1') &&
+      contains(github.event.issue.body, '"kind":"invite"') &&
       contains(github.event.comment.body, '/decline-project-forge')
     runs-on: ubuntu-latest
     steps:
@@ -22,12 +23,24 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Normalize persisted invitation state
+        id: normalized-event
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/project-forge-decline-event.json"
+          python tools/onboarding_issue_state.py normalize-event \
+            --kind invite \
+            --event "$GITHUB_EVENT_PATH" \
+            --output "$output"
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+
       - name: Validate pending invitation decline
         id: decline
         run: |
           python tools/onboarding_portal.py validate \
             --kind decline \
-            --event "$GITHUB_EVENT_PATH" \
+            --event "${{ steps.normalized-event.outputs.path }}" \
             --registry config/developers.json
 
       - name: Explain invalid decline request
