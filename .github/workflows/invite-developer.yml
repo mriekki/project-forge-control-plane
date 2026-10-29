@@ -106,6 +106,36 @@ jobs:
               throw error;
             }
 
+      - name: Render persisted invitation state
+        id: invite-state
+        if: steps.invite.outputs.valid == 'true'
+        shell: bash
+        env:
+          TARGET_OWNER: ${{ steps.invite.outputs.target_owner }}
+        run: |
+          set -euo pipefail
+          state="$(python tools/onboarding_issue_state.py render --kind invite --target-owner "$TARGET_OWNER")"
+          {
+            echo 'body<<PROJECT_FORGE_STATE'
+            echo "$state"
+            echo 'PROJECT_FORGE_STATE'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Give the invitation a human-facing title
+        if: steps.invite.outputs.valid == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          STATE_BODY: ${{ steps.invite-state.outputs.body }}
+        with:
+          script: |
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              title: "You're invited to Project Forge",
+              body: process.env.STATE_BODY,
+            });
+
       - name: Read invitation policy
         id: policy
         if: steps.invite.outputs.valid == 'true'
@@ -227,6 +257,36 @@ jobs:
             core.setFailed(
               'Invalid Project Forge onboarding self-test request; recovery instructions were posted to the issue.'
             );
+
+      - name: Render persisted self-test state
+        id: test-state
+        if: steps.test-invite.outcome == 'success'
+        shell: bash
+        env:
+          TARGET_OWNER: ${{ steps.test-invite.outputs.target_owner }}
+        run: |
+          set -euo pipefail
+          state="$(python tools/onboarding_issue_state.py render --kind test-invite --target-owner "$TARGET_OWNER")"
+          {
+            echo 'body<<PROJECT_FORGE_STATE'
+            echo "$state"
+            echo 'PROJECT_FORGE_STATE'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Give the onboarding test a human-facing title
+        if: steps.test-invite.outcome == 'success'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          STATE_BODY: ${{ steps.test-state.outputs.body }}
+        with:
+          script: |
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              title: 'Project Forge onboarding test',
+              body: process.env.STATE_BODY,
+            });
 
       - name: Read invitation policy
         id: test-policy
