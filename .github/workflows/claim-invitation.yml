@@ -256,7 +256,7 @@ jobs:
               '',
               'After that, start with:',
               '',
-              '`New Project: <your idea>`',
+              '`New Project`',
               '',
               `Project Forge overview: ${welcome}`,
               '',

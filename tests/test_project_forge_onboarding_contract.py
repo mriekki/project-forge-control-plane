@@ -31,6 +31,8 @@ class ProjectForgeOnboardingContractTests(unittest.TestCase):
         self.assertIn("Install Project Forge Builder", text)
         self.assertIn("/accept-project-forge", text)
         self.assertIn("More about Project Forge", text)
+        self.assertIn("```text\nNew Project\n```", text)
+        self.assertNotIn("New Project:", text)
         self.assertNotIn("GitHub App registration", text)
         self.assertNotIn("Control Plane Actions configuration", text)
         self.assertNotIn("APP_CLIENT_ID", text)
@@ -47,14 +49,16 @@ class ProjectForgeOnboardingContractTests(unittest.TestCase):
         text = (ROOT / ".github" / "workflows" / "claim-invitation.yml").read_text(encoding="utf-8")
         self.assertIn("Automatically verify public Project Forge contract", text)
         self.assertIn("Project Forge is ready", text)
-        self.assertIn("New Project: <your idea>", text)
+        self.assertIn("`New Project`", text)
+        self.assertNotIn("New Project:", text)
         self.assertIn("/project-forge-doctor", text)
 
     def test_doctor_is_retry_path_with_new_project_language(self):
         text = (ROOT / ".github" / "workflows" / "onboarding-doctor.yml").read_text(encoding="utf-8")
         self.assertIn("Project Forge readiness check", text)
         self.assertIn("READY FOR PROJECT FORGE", text)
-        self.assertIn("New Project: <idea>", text)
+        self.assertIn("`New Project`", text)
+        self.assertNotIn("New Project:", text)
 
     def test_invitation_docs_use_canonical_identifiers(self):
         text = (ROOT / "docs" / "INVITATIONS.md").read_text(encoding="utf-8")
