@@ -11,9 +11,11 @@ PUBLIC_FILES = [
     ROOT / "docs" / "ADMIN_SETUP.md",
     ROOT / "tools" / "request.py",
     ROOT / "tools" / "project_forge_contract.py",
+    ROOT / "tools" / "adoption_contract.py",
     ROOT / ".github" / "workflows" / "invite-developer.yml",
     ROOT / ".github" / "workflows" / "claim-invitation.yml",
     ROOT / ".github" / "workflows" / "generate-project.yml",
+    ROOT / ".github" / "workflows" / "adopt-project.yml",
     ROOT / ".github" / "workflows" / "sync-core.yml",
 ]
 
@@ -44,6 +46,7 @@ class ProjectForgePublicIdentityTests(unittest.TestCase):
     def test_source_workflows_do_not_hard_code_private_project_forge_repository_names(self) -> None:
         workflows = [
             ROOT / ".github" / "workflows" / "generate-project.yml",
+            ROOT / ".github" / "workflows" / "adopt-project.yml",
             ROOT / ".github" / "workflows" / "sync-core.yml",
         ]
         for path in workflows:
@@ -60,6 +63,7 @@ class ProjectForgePublicIdentityTests(unittest.TestCase):
         self.assertIn("[invite-project-forge]", combined)
         self.assertIn("/accept-project-forge", combined)
         self.assertIn("[generate-project]", combined)
+        self.assertIn("[adopt-project]", combined)
 
 
 if __name__ == "__main__":
