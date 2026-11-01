@@ -1,0 +1,342 @@
+name: Adopt Project
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: project-adoption-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  adopt:
+    if: startsWith(github.event.issue.title, '[adopt-project] ')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout public control plane
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate public request envelope
+        id: request
+        shell: bash
+        run: |
+          python tools/request.py extract \
+            --request-type adopt-project \
+            --event "$GITHUB_EVENT_PATH" \
+            --allowed-owners config/allowed-owners.json
+
+      - name: Resolve protected Adoption source identity
+        id: adoption-source
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ secrets.ADOPTION_SOURCE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$SOURCE_REPOSITORY" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+            echo "Protected Adoption source repository is missing or invalid" >&2
+            exit 2
+          fi
+          owner="${SOURCE_REPOSITORY%%/*}"
+          name="${SOURCE_REPOSITORY#*/}"
+          echo "::add-mask::$SOURCE_REPOSITORY"
+          echo "::add-mask::$name"
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve accepted public Adoption pin
+        id: public-adoption
+        shell: bash
+        env:
+          PROJECT_FORGE_ADOPTION_SOURCE_REPOSITORY: ${{ secrets.ADOPTION_SOURCE_REPOSITORY }}
+        run: python tools/adoption_contract.py resolve
+
+      - name: Resolve accepted public Bootstrap discovery pin
+        id: public-bootstrap
+        shell: bash
+        env:
+          PROJECT_FORGE_BOOTSTRAP_SOURCE_REPOSITORY: ${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY }}
+        run: python tools/project_forge_contract.py resolve-bootstrap
+
+      - name: Create Adoption source installation token
+        id: source-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ steps.adoption-source.outputs.owner }}
+          repositories: ${{ steps.adoption-source.outputs.name }}
+          permission-contents: read
+
+      - name: Create target installation token
+        id: target-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ steps.request.outputs.target_owner }}
+          repositories: ${{ steps.request.outputs.target_name }}
+          permission-contents: write
+          permission-workflows: write
+          permission-pull-requests: write
+          permission-checks: read
+
+      - name: Resolve GitHub App bot identity
+        id: app-bot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          APP_SLUG: ${{ steps.target-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APP_SLUG" ]; then
+            echo "GitHub App token action did not return app-slug" >&2
+            exit 2
+          fi
+          bot_login="${APP_SLUG}[bot]"
+          bot_id="$(gh api "/users/${bot_login}" --jq '.id')"
+          if ! [[ "$bot_id" =~ ^[0-9]+$ ]]; then
+            echo "Unable to resolve GitHub App bot user id for ${bot_login}" >&2
+            exit 2
+          fi
+          echo "login=${bot_login}" >> "$GITHUB_OUTPUT"
+          echo "email=${bot_id}+${bot_login}@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact accepted Adoption source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ secrets.ADOPTION_SOURCE_REPOSITORY }}
+          ref: ${{ steps.public-adoption.outputs.adoption_revision }}
+          token: ${{ steps.source-token.outputs.token }}
+          path: adoption
+          fetch-depth: 1
+
+      - name: Verify accepted Adoption source
+        id: adoption
+        shell: bash
+        env:
+          ADOPTION_REVISION: ${{ steps.public-adoption.outputs.adoption_revision }}
+          ADOPTION_PROTOCOL_VERSION: ${{ steps.public-adoption.outputs.adoption_protocol_version }}
+        run: |
+          set -euo pipefail
+          sha="$(git -C adoption rev-parse HEAD)"
+          if [ "$sha" != "$ADOPTION_REVISION" ]; then
+            echo "Accepted Adoption checkout does not match public adoption revision" >&2
+            exit 2
+          fi
+          python tools/adoption_contract.py verify \
+            --root adoption \
+            --protocol-version "$ADOPTION_PROTOCOL_VERSION"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout target adoption seed branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ steps.request.outputs.target_repository }}
+          ref: ${{ steps.request.outputs.seed_branch }}
+          token: ${{ steps.target-token.outputs.token }}
+          path: target
+          fetch-depth: 0
+
+      - name: Validate private approved adoption manifest
+        id: manifest
+        shell: bash
+        env:
+          EXPECTED_TARGET_REPOSITORY: ${{ steps.request.outputs.target_repository }}
+          EXPECTED_ADOPTION_REVISION: ${{ steps.adoption.outputs.sha }}
+          EXPECTED_BOOTSTRAP_REVISION: ${{ steps.public-bootstrap.outputs.bootstrap_revision }}
+        run: |
+          set -euo pipefail
+          python adoption/tools/validate-project-adoption.py target/PROJECT_ADOPTION.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path('target/PROJECT_ADOPTION.json').read_text(encoding='utf-8'))
+          expected_target = os.environ['EXPECTED_TARGET_REPOSITORY']
+          expected_adoption = os.environ['EXPECTED_ADOPTION_REVISION']
+          expected_bootstrap = os.environ['EXPECTED_BOOTSTRAP_REVISION']
+          if manifest['target']['repository'].lower() != expected_target.lower():
+              raise SystemExit('PROJECT_ADOPTION.json target repository does not match public request')
+          if manifest['adoptionKit']['commit'] != expected_adoption:
+              raise SystemExit('PROJECT_ADOPTION.json Adoption Kit revision does not match accepted public adoption pin')
+          if manifest['discovery']['bootstrapCommit'] != expected_bootstrap:
+              raise SystemExit('PROJECT_ADOPTION.json Bootstrap discovery revision does not match accepted public Bootstrap pin')
+          print(f"default_branch={manifest['target']['defaultBranch']}")
+          print(f"analyzed_commit={manifest['target']['analyzedCommit']}")
+          PY
+
+      - name: Refresh exact origin default-branch evidence
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ steps.manifest.outputs.default_branch }}
+        run: |
+          set -euo pipefail
+          git -C target fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+
+      - name: Apply deterministic remote adoption
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python adoption/installer/apply-project-adoption.py target
+          git -C target diff --check
+          git -C target status --short --branch
+
+      - name: Commit and push adoption changes
+        id: publish
+        shell: bash
+        env:
+          BOT_LOGIN: ${{ steps.app-bot.outputs.login }}
+          BOT_EMAIL: ${{ steps.app-bot.outputs.email }}
+          SEED_BRANCH: ${{ steps.request.outputs.seed_branch }}
+        run: |
+          set -euo pipefail
+          git -C target config user.name "$BOT_LOGIN"
+          git -C target config user.email "$BOT_EMAIL"
+          git -C target add -A
+          git -C target diff --cached --check
+          if git -C target diff --cached --quiet; then
+            echo "Adoption apply produced no changes." >&2
+            exit 2
+          fi
+          git -C target commit -m "Adopt Project Forge"
+          git -C target push origin "HEAD:$SEED_BRANCH"
+          echo "commit=$(git -C target rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create target adoption PR
+        id: pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET_REPOSITORY: ${{ steps.request.outputs.target_repository }}
+          BASE_BRANCH: ${{ steps.manifest.outputs.default_branch }}
+          ADOPTION_BRANCH: ${{ steps.request.outputs.seed_branch }}
+          ADOPTION_REVISION: ${{ steps.adoption.outputs.sha }}
+          ANALYZED_COMMIT: ${{ steps.manifest.outputs.analyzed_commit }}
+          REQUEST_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          body_file="$RUNNER_TEMP/adoption-pr.md"
+          cat > "$body_file" <<EOF
+          ## Summary
+          - apply the approved Project Forge adoption plan to the exact reviewed repository snapshot
+          - preserve repository-owned conventions except for explicit guarded adoption actions
+          - install Adoption-managed workflow assets and durable adoption provenance
+
+          ## Evidence
+          - analyzed default-branch base: \`$ANALYZED_COMMIT\`
+          - accepted Adoption revision: \`$ADOPTION_REVISION\`
+          - deterministic exact-base adoption apply and validation passed
+          - created by Control Plane request #$REQUEST_NUMBER
+
+          Merge remains an explicit human decision. This PR does not authorize deployment or upstream writes.
+          EOF
+          pr_url="$(gh pr create \
+            --repo "$TARGET_REPOSITORY" \
+            --base "$BASE_BRANCH" \
+            --head "$ADOPTION_BRANCH" \
+            --title "Adopt Project Forge" \
+            --body-file "$body_file")"
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Observe target adoption PR CI
+        id: ci
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          TARGET_REPOSITORY: ${{ steps.request.outputs.target_repository }}
+        run: |
+          set -euo pipefail
+          pr_number="${PR_URL##*/}"
+          head_sha="$(gh api "/repos/$TARGET_REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
+          checks=0
+          for _ in $(seq 1 60); do
+            checks_json="$(gh api "/repos/$TARGET_REPOSITORY/commits/$head_sha/check-runs?per_page=100")"
+            checks="$(jq -r '.total_count' <<<"$checks_json")"
+            if [ "$checks" -gt 0 ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$checks" -eq 0 ]; then
+            echo "CI NOT OBSERVED"
+            echo "state=not-observed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          stable_complete_polls=0
+          last_count=-1
+          for _ in $(seq 1 360); do
+            checks_json="$(gh api "/repos/$TARGET_REPOSITORY/commits/$head_sha/check-runs?per_page=100")"
+            checks="$(jq -r '.total_count' <<<"$checks_json")"
+            failures="$(jq -r '[.check_runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length' <<<"$checks_json")"
+            pending="$(jq -r '[.check_runs[] | select(.status != "completed")] | length' <<<"$checks_json")"
+
+            if [ "$failures" -gt 0 ]; then
+              jq -r '.check_runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")) | "Target adoption check failed: \(.name) -> \(.conclusion)"' <<<"$checks_json" >&2
+              exit 1
+            fi
+
+            if [ "$pending" -eq 0 ]; then
+              if [ "$checks" -eq "$last_count" ]; then
+                stable_complete_polls=$((stable_complete_polls + 1))
+              else
+                stable_complete_polls=1
+              fi
+              if [ "$stable_complete_polls" -ge 3 ]; then
+                echo "Target adoption PR checks are green and stable ($checks check run(s))."
+                echo "state=green" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              stable_complete_polls=0
+            fi
+
+            last_count="$checks"
+            sleep 5
+          done
+
+          echo "Target adoption PR checks did not settle within 30 minutes." >&2
+          exit 2
+
+      - name: Report successful adoption orchestration
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_REPOSITORY: ${{ steps.request.outputs.target_repository }}
+          TARGET_PR: ${{ steps.pr.outputs.url }}
+          CI_STATE: ${{ steps.ci.outputs.state }}
+        run: |
+          set -euo pipefail
+          if [ "$CI_STATE" = "green" ]; then
+            message="Project Forge adoption PR is ready for human review: \`$TARGET_REPOSITORY\`. PR: $TARGET_PR. Target PR CI is green; merge is not implied."
+          else
+            message="Project Forge adoption PR is ready for human review: \`$TARGET_REPOSITORY\`. PR: $TARGET_PR. CI NOT OBSERVED. No green CI claim is implied; merge remains a human decision."
+          fi
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$message"
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason completed
+
+      - name: Report failed adoption orchestration
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Remote Project adoption failed or was blocked by safety checks. No target merge, green CI result, deployment, or upstream write is implied. Inspect this workflow run before retrying."
