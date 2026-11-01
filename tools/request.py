@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any
 
 REQUEST_PREFIX = "[generate-project]"
+ADOPT_REQUEST_PREFIX = "[adopt-project]"
 SYNC_REQUEST_PREFIX = "[sync-core]"
+ADOPTION_BRANCH_PREFIX = "project-forge/adopt-"
+OPAQUE_REQUEST_ID_RE = re.compile(r"[0-9a-f]{32}")
 RESERVED_PROJECT_FORGE_REPOSITORY_PREFIX = "project-forge-"
 
 
@@ -43,30 +46,14 @@ def load_allowed_owners(path: Path) -> set[str]:
     return normalized
 
 
-def _parse_target_request(
-    event: dict[str, Any],
-    allowed_owners: set[str],
+def _validate_target(
     *,
-    prefix: str,
+    owner: str,
+    repository_name: str,
+    author: str,
+    allowed_owners: set[str],
     request_label: str,
-) -> dict[str, str]:
-    issue = event.get("issue")
-    if not isinstance(issue, dict):
-        raise RequestError(f"{request_label} requires a GitHub issue event")
-
-    body = str(issue.get("body") or "")
-    if body.strip():
-        raise RequestError(
-            f"{request_label} request body must be empty; keep private target details in the target repository"
-        )
-
-    author = str((issue.get("user") or {}).get("login") or "").strip()
-    title = str(issue.get("title") or "").strip()
-    match = re.fullmatch(rf"{re.escape(prefix)}\s+([^/\s]+)/([^/\s]+)", title)
-    if not match:
-        raise RequestError(f"Issue title must be exactly '{prefix} owner/repository'")
-
-    owner, repository_name = match.groups()
+) -> str:
     if author.lower() != owner.lower():
         raise RequestError(
             f"{request_label} request author must own the target repository ({owner}); found {author or 'unknown'}"
@@ -79,18 +66,56 @@ def _parse_target_request(
         raise RequestError(
             f"Refusing reserved Project Forge repository namespace as {request_label.lower()} target: {owner}/{repository_name}"
         )
+    return f"{owner}/{repository_name}"
 
-    repository = f"{owner}/{repository_name}"
+
+def _issue(event: dict[str, Any], request_label: str) -> dict[str, Any]:
+    issue = event.get("issue")
+    if not isinstance(issue, dict):
+        raise RequestError(f"{request_label} requires a GitHub issue event")
+    body = str(issue.get("body") or "")
+    if body.strip():
+        raise RequestError(
+            f"{request_label} request body must be empty; keep private target details in the target repository"
+        )
+    return issue
+
+
+def _issue_number(issue: dict[str, Any]) -> str:
     number = str(issue.get("number") or "")
     if not number.isdigit():
         raise RequestError("Issue number is missing or invalid")
+    return number
 
+
+def _parse_target_request(
+    event: dict[str, Any],
+    allowed_owners: set[str],
+    *,
+    prefix: str,
+    request_label: str,
+) -> dict[str, str]:
+    issue = _issue(event, request_label)
+    author = str((issue.get("user") or {}).get("login") or "").strip()
+    title = str(issue.get("title") or "").strip()
+    match = re.fullmatch(rf"{re.escape(prefix)}\s+([^/\s]+)/([^/\s]+)", title)
+    if not match:
+        raise RequestError(f"Issue title must be exactly '{prefix} owner/repository'")
+
+    owner, repository_name = match.groups()
+    repository = _validate_target(
+        owner=owner,
+        repository_name=repository_name,
+        author=author,
+        allowed_owners=allowed_owners,
+        request_label=request_label,
+    )
     return {
         "target_owner": owner,
         "target_name": repository_name,
         "target_repository": repository,
         "request_author": author,
-        "issue_number": number,
+        "issue_number": _issue_number(issue),
     }
 
 
@@ -101,6 +126,40 @@ def parse_request(event: dict[str, Any], allowed_owners: set[str]) -> dict[str, 
         prefix=REQUEST_PREFIX,
         request_label="Generation",
     )
+
+
+def parse_adopt_request(event: dict[str, Any], allowed_owners: set[str]) -> dict[str, str]:
+    issue = _issue(event, "Adoption")
+    author = str((issue.get("user") or {}).get("login") or "").strip()
+    title = str(issue.get("title") or "").strip()
+    match = re.fullmatch(
+        rf"{re.escape(ADOPT_REQUEST_PREFIX)}\s+([^/\s]+)/([^/\s]+)\s+([0-9a-f]{{32}})",
+        title,
+    )
+    if not match:
+        raise RequestError(
+            f"Issue title must be exactly '{ADOPT_REQUEST_PREFIX} owner/repository <32-lowercase-hex-request-id>'"
+        )
+
+    owner, repository_name, request_id = match.groups()
+    if not OPAQUE_REQUEST_ID_RE.fullmatch(request_id):
+        raise RequestError("Adoption request id must be exactly 32 lowercase hexadecimal characters")
+    repository = _validate_target(
+        owner=owner,
+        repository_name=repository_name,
+        author=author,
+        allowed_owners=allowed_owners,
+        request_label="Adoption",
+    )
+    return {
+        "target_owner": owner,
+        "target_name": repository_name,
+        "target_repository": repository,
+        "request_author": author,
+        "issue_number": _issue_number(issue),
+        "request_id": request_id,
+        "seed_branch": f"{ADOPTION_BRANCH_PREFIX}{request_id}",
+    }
 
 
 def parse_sync_request(event: dict[str, Any], allowed_owners: set[str]) -> dict[str, str]:
@@ -129,6 +188,9 @@ def extract_command(args: argparse.Namespace) -> int:
     if args.request_type == "generate-project":
         values = parse_request(event, allowed)
         label = "generation"
+    elif args.request_type == "adopt-project":
+        values = parse_adopt_request(event, allowed)
+        label = "adoption"
     else:
         values = parse_sync_request(event, allowed)
         label = "Core sync"
@@ -146,7 +208,7 @@ def parse_args() -> argparse.Namespace:
     extract.add_argument("--allowed-owners", required=True, type=Path)
     extract.add_argument(
         "--request-type",
-        choices=("generate-project", "sync-core"),
+        choices=("generate-project", "adopt-project", "sync-core"),
         default="generate-project",
         help="Public request contract to validate",
     )
