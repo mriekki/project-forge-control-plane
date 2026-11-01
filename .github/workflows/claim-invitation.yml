@@ -146,6 +146,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+
       - name: Re-authenticate Control Plane checkout for registry persistence
         if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
