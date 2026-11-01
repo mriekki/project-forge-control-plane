@@ -22,6 +22,13 @@ assert CONTRACT_SPEC and CONTRACT_SPEC.loader
 adoption_contract = importlib.util.module_from_spec(CONTRACT_SPEC)
 CONTRACT_SPEC.loader.exec_module(adoption_contract)
 
+WORKFLOW_POLICY_SPEC = importlib.util.spec_from_file_location(
+    "adoption_workflow_policy", ROOT / "tools" / "adoption_workflow_policy.py"
+)
+assert WORKFLOW_POLICY_SPEC and WORKFLOW_POLICY_SPEC.loader
+adoption_workflow_policy = importlib.util.module_from_spec(WORKFLOW_POLICY_SPEC)
+WORKFLOW_POLICY_SPEC.loader.exec_module(adoption_workflow_policy)
+
 
 class RemoteAdoptionTests(unittest.TestCase):
     def event(
@@ -39,6 +46,16 @@ class RemoteAdoptionTests(unittest.TestCase):
                 "user": {"login": author},
             }
         }
+
+    def manifest(self, repository_workflow: object = None, *, include_policy: bool = False) -> dict:
+        engineering = {
+            "schemaVersion": 1,
+            "status": "human-confirmed",
+            "source": "project-forge-adoption-discovery",
+        }
+        if include_policy:
+            engineering["repositoryWorkflow"] = repository_workflow
+        return {"engineeringContext": engineering}
 
     def test_adoption_request_is_owner_scoped_empty_body_and_opaque(self) -> None:
         values = request.parse_adopt_request(self.event(), {"mriekki"})
@@ -125,6 +142,70 @@ class RemoteAdoptionTests(unittest.TestCase):
             with self.assertRaises(adoption_contract.AdoptionContractError):
                 adoption_contract.verify_adoption_source(root, protocol_version=2)
 
+    def test_repository_workflow_policy_defaults_to_existing_control_plane_behavior(self) -> None:
+        resolved = adoption_workflow_policy.resolve_repository_workflow(self.manifest())
+        self.assertEqual(
+            resolved,
+            {
+                "commit_message": "Adopt Project Forge",
+                "pr_title": "Adopt Project Forge",
+                "pr_body_mode": "project-forge-summary",
+                "pr_template_path": "",
+            },
+        )
+
+    def test_repository_workflow_policy_can_honor_ai_prefix_and_exact_template(self) -> None:
+        resolved = adoption_workflow_policy.resolve_repository_workflow(
+            self.manifest(
+                {
+                    "commitMessage": "[AI] Adopt Project Forge",
+                    "pullRequest": {
+                        "title": "[AI] Adopt Project Forge",
+                        "body": {
+                            "mode": "repository-template",
+                            "templatePath": ".github/PULL_REQUEST_TEMPLATE.md",
+                        },
+                    },
+                },
+                include_policy=True,
+            )
+        )
+        self.assertEqual(resolved["commit_message"], "[AI] Adopt Project Forge")
+        self.assertEqual(resolved["pr_title"], "[AI] Adopt Project Forge")
+        self.assertEqual(resolved["pr_body_mode"], "repository-template")
+        self.assertEqual(resolved["pr_template_path"], ".github/PULL_REQUEST_TEMPLATE.md")
+
+    def test_repository_workflow_policy_rejects_unsafe_or_ambiguous_values(self) -> None:
+        with self.assertRaises(adoption_workflow_policy.WorkflowPolicyError):
+            adoption_workflow_policy.resolve_repository_workflow(
+                self.manifest(
+                    {
+                        "commitMessage": "bad\nmessage",
+                        "pullRequest": {
+                            "title": "[AI] Adopt Project Forge",
+                            "body": {"mode": "project-forge-summary"},
+                        },
+                    },
+                    include_policy=True,
+                )
+            )
+        with self.assertRaises(adoption_workflow_policy.WorkflowPolicyError):
+            adoption_workflow_policy.resolve_repository_workflow(
+                self.manifest(
+                    {
+                        "commitMessage": "[AI] Adopt Project Forge",
+                        "pullRequest": {
+                            "title": "[AI] Adopt Project Forge",
+                            "body": {
+                                "mode": "repository-template",
+                                "templatePath": "../outside.md",
+                            },
+                        },
+                    },
+                    include_policy=True,
+                )
+            )
+
     def test_adoption_workflow_preserves_exact_base_pr_ci_and_human_merge_boundary(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "adopt-project.yml").read_text(encoding="utf-8")
         for expected in (
@@ -136,10 +217,18 @@ class RemoteAdoptionTests(unittest.TestCase):
             "python tools/adoption_contract.py verify",
             "PROJECT_ADOPTION.json",
             "validate-project-adoption.py",
+            "adoption_workflow_policy.py",
             "apply-project-adoption.py target",
             "steps.request.outputs.seed_branch",
             "permission-pull-requests: write",
             "permission-checks: read",
+            "ADOPTION_COMMIT_MESSAGE",
+            'git -C target commit -m "$ADOPTION_COMMIT_MESSAGE"',
+            "ADOPTION_PR_TITLE",
+            "ADOPTION_PR_BODY_MODE",
+            "ADOPTION_PR_TEMPLATE_PATH",
+            'git -C target show "$ANALYZED_COMMIT:$ADOPTION_PR_TEMPLATE_PATH"',
+            '--title "$ADOPTION_PR_TITLE"',
             "gh pr create",
             "check-runs?per_page=100",
             "CI NOT OBSERVED",
