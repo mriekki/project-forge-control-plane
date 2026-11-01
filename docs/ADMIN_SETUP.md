@@ -2,7 +2,7 @@
 
 > **For Project Forge administrators/operators only.** Project Builders do not need to configure this repository, GitHub Actions variables/secrets, or the GitHub App. Builder onboarding is intentionally kept separate in [`SETUP.md`](SETUP.md).
 
-This repository is the public orchestration surface for Project Forge generation, Builder invitation/authorization, and supported remote update workflows. Private foundational source topology stays behind protected Actions configuration; the public `@mriekki/project-forge` package remains the normal reusable-asset delivery boundary for generated Projects.
+This repository is the public orchestration surface for Project Forge generation, existing-repository adoption, Builder invitation/authorization, and supported remote update workflows. Private foundational source topology stays behind protected Actions configuration; the public `@mriekki/project-forge` package remains the normal reusable-asset delivery boundary for generated Projects.
 
 Canonical repository identity:
 
@@ -10,7 +10,7 @@ Canonical repository identity:
 mriekki/project-forge-control-plane
 ```
 
-The canonical generation manifest is `PROJECT_BOOTSTRAP.json`.
+Canonical private consumer authorities include `PROJECT_BOOTSTRAP.json` for generation and `PROJECT_ADOPTION.json` for existing-repository adoption.
 
 ## Security boundary
 
@@ -22,12 +22,13 @@ Public operational issues contain only safe identities:
 [project-forge-doctor] github-owner
 [revoke-project-forge] github-owner
 [generate-project] owner/repository
+[adopt-project] owner/repository <32-lowercase-hex-request-id>
 [sync-core] owner/repository
 ```
 
-Issue bodies must remain empty. Private Project definitions, baseline contents, source code, foundational repository topology, credentials, and secrets never belong in a Control Plane issue.
+Issue bodies must remain empty. The adoption request ID is opaque correlation only and must not encode private Project/repository analysis. Private Project definitions, adoption manifests, baseline contents, source code, foundational repository topology, credentials, and secrets never belong in a Control Plane issue.
 
-Private generation data stays in the target repository's `PROJECT_BOOTSTRAP.json`. Workflows read target-private files only after minting a GitHub App installation token scoped to that exact repository.
+Private generation data stays in the target repository's `PROJECT_BOOTSTRAP.json`. Private adoption authority stays in `PROJECT_ADOPTION.json` on the short-lived seed branch. Workflows read target-private files only after minting a GitHub App installation token scoped to that exact repository.
 
 Do not store PATs or npm publish tokens in this repository. The credential model is one GitHub App private key plus protected source-repository mappings stored as Actions secrets; workflows mint short-lived installation tokens for the exact source/target repositories needed by each operation.
 
@@ -50,7 +51,7 @@ Keep GitHub's identity terms distinct:
 
 Workflows resolve the actual App slug/bot identity rather than guessing it. A display-name rename must not be coupled to a bot-identity or credential migration unless GitHub itself changes those values.
 
-Required repository permissions for generation plus the existing remote Core-sync workflow:
+Required repository permissions for generation, adoption, and the existing remote Core-sync workflow:
 
 - **Contents: Read and write**;
 - **Workflows: Read and write**;
@@ -60,7 +61,7 @@ Required repository permissions for generation plus the existing remote Core-syn
 
 The Control Plane does not need target-repository Issues permission. It comments on its own public issues using the workflow run's normal `GITHUB_TOKEN`.
 
-The App does not need webhooks for this design; onboarding, generation, and Core sync are initiated by this repository's issue-triggered Actions workflows.
+The App does not need webhooks for this design; onboarding, generation, adoption, and Core sync are initiated by this repository's issue-triggered Actions workflows.
 
 When permissions are expanded on an existing App installation, GitHub may require the installation owner to approve the change. Confirm the installation remains active before relying on the new permission.
 
@@ -68,8 +69,8 @@ When permissions are expanded on an existing App installation, GitHub may requir
 
 Install **Project Forge Builder** on the Control Plane owner account and on each approved Builder account.
 
-- **Recommended — least privilege:** select only repositories that Project Forge should operate on. Add a newly created Project repository to the installation before generation or update operations need it.
-- **Convenience option:** allow all repositories when the Builder explicitly prefers not to manage repository selection as Projects are created.
+- **Recommended — least privilege:** select only repositories that Project Forge should operate on. Add a newly created or adopted Project repository to the installation before generation/adoption/update operations need it.
+- **Convenience option:** allow all repositories when the Builder explicitly prefers not to manage repository selection as Projects are created or adopted.
 
 Each workflow still mints a short-lived installation token scoped to the exact repository required by that run. Selected-repository installation provides an additional outer authorization boundary and reduces the App installation's standing scope.
 
@@ -82,11 +83,12 @@ Configure these values in **Settings → Secrets and variables → Actions**:
 1. Store the App **Client ID** as Actions variable `APP_CLIENT_ID`.
 2. Store the complete App private key as Actions secret `APP_PRIVATE_KEY`.
 3. Store the exact private Bootstrap source as Actions secret `BOOTSTRAP_SOURCE_REPOSITORY` using `owner/repository` format.
-4. Store the exact private Core source as Actions secret `CORE_SOURCE_REPOSITORY` using `owner/repository` format.
-5. Do not commit the protected source mappings or credentials into this public repository.
-6. Keep `config/developers.json`, `config/invitation-policy.json`, and `config/allowed-owners.json` valid under CI.
+4. Store the exact private Adoption source as Actions secret `ADOPTION_SOURCE_REPOSITORY` using `owner/repository` format.
+5. Store the exact private Core source as Actions secret `CORE_SOURCE_REPOSITORY` using `owner/repository` format.
+6. Do not commit the protected source mappings or credentials into this public repository.
+7. Keep `config/developers.json`, `config/invitation-policy.json`, and `config/allowed-owners.json` valid under CI.
 
-The generation and Core-sync workflows validate these protected mappings, mask the resolved private repository identities in logs, and fail closed if required configuration is absent or malformed. Public contract compatibility still pins exact accepted revisions; the protected mapping only supplies the private repository location.
+The generation, adoption, and Core-sync workflows validate these protected mappings, mask the resolved private repository identities in logs, and fail closed if required configuration is absent or malformed. Public contract compatibility still pins exact accepted revisions; the protected mapping only supplies the private repository location.
 
 The invitation workflow uses the App credentials to resolve GitHub's actual App slug and constructs the standard GitHub App installation URL automatically. Renaming the App display name does not require rotating `APP_CLIENT_ID` or `APP_PRIVATE_KEY`.
 
@@ -139,6 +141,27 @@ After discovery and Project Definition approval:
 Normal approved discovery may use `integrity: "registry"` for deterministic machine resolution. Humans are not expected to discover or paste npm integrity metadata. Package/version/profile are the meaningful human approval surface; the generation boundary resolves and verifies exact integrity before reusable mutation.
 
 Missing protected source configuration, missing access, unavailable exact packages, integrity mismatch, invalid provenance, managed-path conflict, or failed generation are stop conditions. They never authorize silent fallback to a different package, source revision, local ZIP, destination, or component revision.
+
+## Existing-repository adoption request contract
+
+After read-only repository archaeology, reconciliation, and explicit `Apply adoption [WRITE]?` approval:
+
+1. the reviewed target default-branch commit is still the exact approved analyzed commit;
+2. ChatGPT creates a short-lived branch named `project-forge/adopt-<32-lowercase-hex-request-id>` from that exact commit;
+3. exactly one commit is added containing only the approved target-private `PROJECT_ADOPTION.json`;
+4. ChatGPT opens an empty-body public issue here titled `[adopt-project] owner/repository <request-id>`;
+5. the author must equal the target owner and already be ACTIVE for Project Forge authoring;
+6. the workflow resolves the accepted Adoption revision from the public Platform descriptor and the protected source location from `ADOPTION_SOURCE_REPOSITORY`;
+7. a source-only token and exact-target token are minted;
+8. the checked-out Adoption source revision/protocol are verified before target mutation;
+9. the private manifest is validated against the exact accepted Adoption schema and must match the exact accepted Bootstrap discovery revision;
+10. origin/default-branch evidence is refreshed and the operation stops if the reviewed base moved;
+11. deterministic Adoption apply/validation runs and stops with a bounded worktree diff;
+12. the Control Plane commits and pushes that diff non-force to the existing adoption branch;
+13. it opens a target-repository adoption PR and observes checks when present; and
+14. it stops for human merge/finalize.
+
+No target checks is reported exactly as `CI NOT OBSERVED`. It is not success evidence for CI. Adoption does not authorize upstream writes, automatic conflict resolution, deployment, Production mutation, or target PR merge.
 
 ## Remote Core-sync compatibility path
 
