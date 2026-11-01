@@ -1,6 +1,6 @@
 # Project Forge Control Plane
 
-Public, credential-isolated orchestration for **Project Forge** onboarding, GitHub-first Project generation, developer authorization, and supported remote update workflows.
+Public, credential-isolated orchestration for **Project Forge** onboarding, GitHub-first Project generation, existing-repository adoption, developer authorization, and supported remote update workflows.
 
 Canonical repository identity:
 
@@ -8,7 +8,7 @@ Canonical repository identity:
 mriekki/project-forge-control-plane
 ```
 
-Canonical technical commands and schema identifiers include `[invite-project-forge]`, `/accept-project-forge`, `[generate-project]`, and `PROJECT_BOOTSTRAP.json`.
+Canonical technical commands and schema identifiers include `[invite-project-forge]`, `/accept-project-forge`, `[generate-project]`, `[adopt-project]`, `PROJECT_BOOTSTRAP.json`, and `PROJECT_ADOPTION.json`.
 
 ## Admin quick start
 
@@ -42,13 +42,13 @@ Reusable Project Forge capabilities are separately owned behind the public Platf
 - the public **Project Forge Platform** owns the `@mriekki/project-forge` distribution and public ChatGPT contract;
 - this public **Project Forge Control Plane** owns invitation/authorization and GitHub-first orchestration;
 - private foundational sources own reusable workflow behavior, discovery/generation logic, deployment mechanics, and existing-repository adoption behavior;
-- generated Projects own their product scope, architecture, code/tests, documentation, accepted baselines, deployment facts, and Git/PR/CI state.
+- generated or adopted Projects own their product scope, architecture, code/tests, documentation, accepted baselines, deployment facts, and Git/PR/CI state.
 
 Each Builder owns their own Project repositories. This public Control Plane contains only safe request/orchestration and developer-authorization metadata; it must not contain private Project definitions, foundational source topology, GitHub App private keys, PATs, or other credentials.
 
 ## Developer authorization
 
-`config/developers.json` is the operational authorization registry. `config/allowed-owners.json` remains a generated authorization projection for existing generation/sync validators; CI requires it to mirror active developers with `generate-project` capability.
+`config/developers.json` is the operational authorization registry. `config/allowed-owners.json` remains a generated authorization projection for existing generation/sync/adoption validators; CI requires it to mirror active developers with `generate-project` capability. Remote adoption is available only to an already-authorized Project Builder who owns the exact target repository.
 
 An already-active Builder can use the doctor issue:
 
@@ -74,17 +74,25 @@ Generation request:
 [generate-project] owner/repository
 ```
 
+Existing-repository adoption request:
+
+```text
+[adopt-project] owner/repository <32-lowercase-hex-request-id>
+```
+
+The adoption request ID is opaque correlation only. It is used to identify the short-lived target branch `project-forge/adopt-<request-id>` and must not encode source code, product definition, secrets, private baseline detail, or repository analysis.
+
 Remote Core-sync request:
 
 ```text
 [sync-core] owner/repository
 ```
 
-For both request types, the issue body must be empty. Private product definitions, baseline details, source code, and secrets stay in the target repository.
+For all request types, the issue body must be empty. Private product definitions, adoption manifests, baseline details, source code, and secrets stay in the target repository.
 
-The request author must match the target owner and be ACTIVE for the relevant capability. The `project-forge-*` repository namespace is reserved and is never a valid generation or generic Core-sync target.
+The request author must match the target owner and be ACTIVE for Project Forge authoring. The `project-forge-*` repository namespace is reserved and is never a valid generic consumer target.
 
-The approved `PROJECT_BOOTSTRAP.json` stays private in a generation target. `CORE_BASELINE.json` stays private in a Core-sync target. Workflows read those files only after minting a short-lived GitHub App installation token scoped to the exact repository.
+The approved `PROJECT_BOOTSTRAP.json` stays private in a generation target. The approved `PROJECT_ADOPTION.json` stays private on the short-lived adoption seed branch. `CORE_BASELINE.json` stays private in a Core-sync target. Workflows read those files only after minting a short-lived GitHub App installation token scoped to the exact repository.
 
 ## GitHub-first generation
 
@@ -102,6 +110,23 @@ The `[generate-project]` workflow:
 Normal approved discovery may use `generation.project-forge.integrity: "registry"`. Humans approve the exact package/version/profile, not npm hash plumbing. The generation boundary resolves registry metadata to the **resolved exact SHA-512 integrity**, verifies it before reusable mutation, and records that exact value in generated provenance.
 
 A missing package/version, integrity mismatch, invalid profile, managed-path conflict, unavailable required access, or failed generation is a stop condition. The workflow never silently substitutes another package, source revision, or destination.
+
+## Existing-repository adoption
+
+Remote adoption is a different operation from greenfield generation. The Builder/ChatGPT discovery path first pins and analyzes the exact target default-branch commit read-only, produces a human-approved Adoption-owned `PROJECT_ADOPTION.json`, and seeds only that manifest on a short-lived branch exactly one commit above the analyzed base.
+
+The `[adopt-project]` workflow then:
+
+1. validates the owner-authored, empty-body request and opaque branch correlation;
+2. resolves the exact accepted Adoption source from the public Project Forge contract while keeping the private source location in protected Actions configuration;
+3. verifies the manifest's exact target, Adoption revision, and Bootstrap discovery revision;
+4. refreshes origin/default-branch evidence and fails if the reviewed base moved;
+5. invokes the canonical deterministic Adoption apply path, including collision and AI-source guards;
+6. commits and pushes only the bounded adoption diff to the existing short-lived branch without force-pushing;
+7. opens a target-repository adoption PR; and
+8. observes target PR checks when they exist.
+
+No target PR checks is reported exactly as `CI NOT OBSERVED`; it is never converted into a green-CI claim. The workflow never merges the adoption PR, deploys the application, writes to an upstream/source repository, or resolves upstream conflicts. Merge/finalize remains a human decision in the target repository.
 
 ## Remote Core sync
 
