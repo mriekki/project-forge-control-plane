@@ -174,6 +174,7 @@ jobs:
           print(f"default_branch={manifest['target']['defaultBranch']}")
           print(f"analyzed_commit={manifest['target']['analyzedCommit']}")
           PY
+          python tools/adoption_workflow_policy.py target/PROJECT_ADOPTION.json
 
       - name: Refresh exact origin default-branch evidence
         shell: bash
@@ -201,6 +202,7 @@ jobs:
           BOT_LOGIN: ${{ steps.app-bot.outputs.login }}
           BOT_EMAIL: ${{ steps.app-bot.outputs.email }}
           SEED_BRANCH: ${{ steps.request.outputs.seed_branch }}
+          ADOPTION_COMMIT_MESSAGE: ${{ steps.manifest.outputs.commit_message }}
         run: |
           set -euo pipefail
           git -C target config user.name "$BOT_LOGIN"
@@ -211,7 +213,7 @@ jobs:
             echo "Adoption apply produced no changes." >&2
             exit 2
           fi
-          git -C target commit -m "Adopt Project Forge"
+          git -C target commit -m "$ADOPTION_COMMIT_MESSAGE"
           git -C target push origin "HEAD:$SEED_BRANCH"
           echo "commit=$(git -C target rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -225,11 +227,23 @@ jobs:
           ADOPTION_BRANCH: ${{ steps.request.outputs.seed_branch }}
           ADOPTION_REVISION: ${{ steps.adoption.outputs.sha }}
           ANALYZED_COMMIT: ${{ steps.manifest.outputs.analyzed_commit }}
+          ADOPTION_PR_TITLE: ${{ steps.manifest.outputs.pr_title }}
+          ADOPTION_PR_BODY_MODE: ${{ steps.manifest.outputs.pr_body_mode }}
+          ADOPTION_PR_TEMPLATE_PATH: ${{ steps.manifest.outputs.pr_template_path }}
           REQUEST_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
-          body_file="$RUNNER_TEMP/adoption-pr.md"
-          cat > "$body_file" <<EOF
+          if [ "$ADOPTION_PR_BODY_MODE" = "repository-template" ]; then
+            template_mode="$(git -C target ls-tree "$ANALYZED_COMMIT" -- "$ADOPTION_PR_TEMPLATE_PATH" | awk '{print $1}')"
+            if [ "$template_mode" != "100644" ] && [ "$template_mode" != "100755" ]; then
+              echo "Reviewed repository PR template is missing or is not a regular file: $ADOPTION_PR_TEMPLATE_PATH" >&2
+              exit 2
+            fi
+            body_file="$RUNNER_TEMP/adoption-repository-template.md"
+            git -C target show "$ANALYZED_COMMIT:$ADOPTION_PR_TEMPLATE_PATH" > "$body_file"
+          else
+            body_file="$RUNNER_TEMP/adoption-pr.md"
+            cat > "$body_file" <<EOF
           ## Summary
           - apply the approved Project Forge adoption plan to the exact reviewed repository snapshot
           - preserve repository-owned conventions except for explicit guarded adoption actions
@@ -243,11 +257,12 @@ jobs:
 
           Merge remains an explicit human decision. This PR does not authorize deployment or upstream writes.
           EOF
+          fi
           pr_url="$(gh pr create \
             --repo "$TARGET_REPOSITORY" \
             --base "$BASE_BRANCH" \
             --head "$ADOPTION_BRANCH" \
-            --title "Adopt Project Forge" \
+            --title "$ADOPTION_PR_TITLE" \
             --body-file "$body_file")"
           echo "url=$pr_url" >> "$GITHUB_OUTPUT"
 
