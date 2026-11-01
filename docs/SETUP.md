@@ -58,7 +58,7 @@ Do **not** copy product requirements, component SHAs, current Project state, or 
 Then start with:
 
 ```text
-New Project: <your idea>
+New Project
 ```
 
 ## Recovery
