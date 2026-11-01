@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path, PurePosixPath
@@ -102,13 +103,11 @@ def resolve_repository_workflow(manifest: Any) -> dict[str, str]:
 
 
 def write_github_output(values: dict[str, str]) -> None:
-    destination = Path(str(Path.cwd() / ".project-forge-no-output"))
-    github_output = __import__("os").environ.get("GITHUB_OUTPUT")
+    github_output = os.environ.get("GITHUB_OUTPUT")
     if not github_output:
         print(json.dumps(values, sort_keys=True))
         return
-    destination = Path(github_output)
-    with destination.open("a", encoding="utf-8") as handle:
+    with Path(github_output).open("a", encoding="utf-8") as handle:
         for key, value in values.items():
             if CONTROL_RE.search(value):
                 raise WorkflowPolicyError(f"unsafe multiline GitHub output: {key}")
