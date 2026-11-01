@@ -129,7 +129,7 @@ jobs:
               `${contract ? '✓' : '✗'} Public Project Forge contract: ${contract ? 'verified' : 'unavailable or invalid'}`,
               '',
               ready
-                ? 'READY FOR PROJECT FORGE — set up the ChatGPT coding Project once, then start with `New Project: <idea>`.'
+                ? 'READY FOR PROJECT FORGE — set up the ChatGPT coding Project once, then start with `New Project`.'
                 : 'NOT READY — resolve the failed check(s), then add a new comment containing exactly `/project-forge-doctor` to retry.',
               ...(!app ? ['', `Project Forge Builder: ${appUrl}`] : []),
               '',
