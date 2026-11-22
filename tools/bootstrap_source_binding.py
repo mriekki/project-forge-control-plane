@@ -55,8 +55,8 @@ def positive(value):
     return type(value) is int and value > 0
 
 
-def resolve_binding(descriptor, binding, authenticated_repo):
-    """Compare reviewed binding to accepted public revision and GitHub identity."""
+def validate_binding_policy(descriptor, binding):
+    """Validate a protected binding before any authenticated repository read."""
     fields(binding, FIELDS, "protected source binding")
     need(type(binding["schemaVersion"]) is int and binding["schemaVersion"] == 1
          and binding["mode"] in ("original-owner", "nested-source"),
@@ -71,13 +71,6 @@ def resolve_binding(descriptor, binding, authenticated_repo):
         need(root != "", "Nested source requires an explicitly reviewed relative root")
     need(exact(binding["repository"], REPO) and positive(binding["repositoryId"]),
          "Invalid protected repository identity")
-    need(isinstance(authenticated_repo, dict)
-         and authenticated_repo.get("full_name") == binding["repository"]
-         and positive(authenticated_repo.get("id"))
-         and authenticated_repo.get("id") == binding["repositoryId"]
-         and authenticated_repo.get("private") is True
-         and authenticated_repo.get("archived") is False,
-         "Authenticated source repository identity differs")
 
     generation = descriptor.get("generation") if isinstance(descriptor, dict) else None
     bootstrap = generation.get("bootstrap") if isinstance(generation, dict) else None
@@ -102,6 +95,20 @@ def resolve_binding(descriptor, binding, authenticated_repo):
                  r"[0-9a-f]{40}/chatgpt/bootstrap-contracts/[A-Za-z0-9_.-]+", entry["url"]),
              "Invalid public requirements artifact pin")
     return dict(binding)
+
+
+def resolve_binding(descriptor, binding, authenticated_repo):
+    """Compare reviewed binding to accepted public revision and GitHub identity."""
+    selected = validate_binding_policy(descriptor, binding)
+    need(isinstance(authenticated_repo, dict)
+         and authenticated_repo.get("full_name") == binding["repository"]
+         and positive(authenticated_repo.get("id"))
+         and authenticated_repo.get("id") == binding["repositoryId"]
+         and authenticated_repo.get("private") is True
+         and authenticated_repo.get("archived") is False,
+         "Authenticated source repository identity differs")
+
+    return selected
 
 
 def git(root, *args):
