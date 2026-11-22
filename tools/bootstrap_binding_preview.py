@@ -112,14 +112,20 @@ def resolve(scratch):
 
 
 def verify(scratch):
-    from bootstrap_source_transport import qualify_transport
+    from bootstrap_source_transport import qualify_transport, TransportStageError
     raw = (scratch / "pf-bootstrap-bindings.json").read_bytes()
     saved = (scratch / "pf-bootstrap-descriptor.json").read_bytes()
     config = strict_json(raw)
     policy, descriptor = resolve_policy(raw, saved, config["original"]["repository"])
     key = os.environ.pop("APP_PRIVATE_KEY")
     client = os.environ.pop("APP_CLIENT_ID")
-    result = qualify_transport(policy, descriptor, client, key, scratch)
+    try:
+        result = qualify_transport(policy, descriptor, client, key, scratch)
+    except TransportStageError as exc:
+        # Stage names originate only from reviewed fixed labels. No raw exception,
+        # response, URL, headers, credential, path, or binding is included.
+        print("Bootstrap transport stage: " + str(exc), file=sys.stderr)
+        raise
     need(fetch(public_contract.DEFAULT_DESCRIPTOR_URL) == saved, "Public descriptor changed during preview")
     # Only public logical identity/count/digest match booleans are emitted;
     # never the physical source locator, original/candidate Git trees or tokens.
