@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import sys
 from unittest.mock import patch
 import tempfile
@@ -88,10 +89,26 @@ class OperationalSourceTests(unittest.TestCase):
             with self.assertRaises(SourceBindingError):
                 inventory(root)
 
+
+    def test_adversarial_variable_remains_inert_shell_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/"must-not-exist"
+            hostile='true"; touch '+str(target)+'; echo "'
+            command='if [ "$PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED" = "true" ]; then exit 99; fi'
+            result=subprocess.run(["bash","--noprofile","--norc","-c",command],
+                env={"PATH": os.environ.get("PATH","/usr/bin"),
+                     "PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED":hostile},
+                capture_output=True,check=False)
+            self.assertEqual(result.returncode,0)
+            self.assertFalse(target.exists())
+
     def test_workflow_default_off_and_target_token_after_source_revocation(self):
         workflow=Path(__file__).resolve().parents[1]/".github/workflows/generate-project.yml"
         raw=workflow.read_text()
         self.assertIn("PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED",raw)
+        self.assertIn("PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED: ${{ vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED }}",raw)
+        self.assertIn('if [ "$PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED" = \'true\' ]; then',raw)
+        self.assertNotIn('if [ "${{ vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED }}" = \'true\' ]; then',raw)
         self.assertIn("BOOTSTRAP_OPERATIONAL_SOURCE_BINDING",raw)
         self.assertIn("bootstrap_operational_source.py materialize",raw)
         self.assertIn("bootstrap_operational_source.py verify",raw)
