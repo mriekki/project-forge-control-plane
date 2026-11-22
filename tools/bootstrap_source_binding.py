@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
@@ -71,6 +73,7 @@ def resolve_binding(descriptor, binding, authenticated_repo):
          "Invalid protected repository identity")
     need(isinstance(authenticated_repo, dict)
          and authenticated_repo.get("full_name") == binding["repository"]
+         and positive(authenticated_repo.get("id"))
          and authenticated_repo.get("id") == binding["repositoryId"]
          and authenticated_repo.get("private") is True
          and authenticated_repo.get("archived") is False,
@@ -78,7 +81,9 @@ def resolve_binding(descriptor, binding, authenticated_repo):
 
     generation = descriptor.get("generation") if isinstance(descriptor, dict) else None
     bootstrap = generation.get("bootstrap") if isinstance(generation, dict) else None
-    need(descriptor.get("channel") == "stable" and isinstance(bootstrap, dict)
+    need(isinstance(descriptor, dict) and type(descriptor.get("schemaVersion")) is int
+         and descriptor["schemaVersion"] == 1 and descriptor.get("channel") == "stable"
+         and isinstance(bootstrap, dict)
          and bootstrap.get("revision") == binding["logicalRevision"]
          and "repository" not in bootstrap and "commit" not in bootstrap
          and positive(bootstrap.get("protocolVersion"))
@@ -151,21 +156,30 @@ def verify_checkout(checkout, descriptor, binding, authenticated_repo):
             need(not target.is_symlink(), "Symlink in source checkout refused")
         need(target.is_file() and target.resolve().is_relative_to(root.resolve()),
              "Missing or unsafe source file")
+        if os.name == "posix":
+            need(bool(target.stat().st_mode & stat.S_IXUSR) == (mode == "100755"),
+                 "Source executable mode differs from reviewed tree")
         raw = target.read_bytes()
         blob = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
         need(blob == oid, "Source working bytes differ from reviewed tree")
         expected.add(name)
     need(bool(expected), "Empty Bootstrap source subtree")
     actual = set()
-    for file in root.rglob("*"):
-        rel = file.relative_to(root)
-        if not relative and rel.parts[0] == ".git":
-            continue
-        need(not file.is_symlink(), "Unexpected source symlink")
-        if file.is_dir():
-            continue
-        need(file.is_file(), "Unexpected source entry type")
-        actual.add(rel.as_posix())
+    for directory, directories, files in os.walk(root, followlinks=False):
+        current = Path(directory)
+        if not relative and current == root:
+            # Only the actual checkout metadata is outside the source tree.
+            if ".git" in directories:
+                directories.remove(".git")
+            if ".git" in files:
+                files.remove(".git")
+        for name in directories:
+            entry = current / name
+            need(entry.is_dir() and not entry.is_symlink(), "Unexpected source directory")
+        for name in files:
+            entry = current / name
+            need(entry.is_file() and not entry.is_symlink(), "Unexpected source entry type")
+            actual.add(entry.relative_to(root).as_posix())
     need(actual == expected, "Extra or missing source working files")
 
     bootstrap = descriptor["generation"]["bootstrap"]
