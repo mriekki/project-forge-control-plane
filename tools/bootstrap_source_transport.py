@@ -149,6 +149,16 @@ def git_checkout(binding, token, destination):
     run(["checkout", "--quiet", "--detach", "--no-recurse-submodules", binding["sourceCommit"]], env)
 
 
+def safe_installation_token(token):
+    # GitHub October 2026 stateless-token rollout: treat API-issued tokens as
+    # opaque. Only bound size for request safety and reject non-ASCII/control/
+    # whitespace or header-unsafe characters. Do not parse JWT or infer scope.
+    # Actual mint permissions, authenticated inventory and revocation remain
+    # the authority. Both legacy and stateless tokens use bearer-safe syntax.
+    return (isinstance(token, str) and 0 < len(token) <= 16384
+            and re.fullmatch(r"[A-Za-z0-9._~+/-]+={0,2}", token) is not None)
+
+
 def qualify_one(binding, descriptor, jwt, destination, request=api, checkout=git_checkout,
                 verify=verify_checkout):
     install = stage("installation-lookup", request, "GET", "/repos/" + binding["repository"] + "/installation", jwt)
@@ -159,7 +169,7 @@ def qualify_one(binding, descriptor, jwt, destination, request=api, checkout=git
     minted = stage("token-mint", request, "POST", f"/app/installations/{install['id']}/access_tokens", jwt,
                    {"repository_ids": [binding["repositoryId"]], "permissions": {"contents": "read"}})
     token = minted.get("token") if isinstance(minted, dict) else None
-    stage("token-format", need, isinstance(token, str) and re.fullmatch(r"[A-Za-z0-9_-]{16,512}", token) is not None,
+    stage("token-format", need, safe_installation_token(token),
           "Exact source installation token missing")
     try:
         stage("token-permissions", need, minted.get("permissions") == PERMISSIONS,
