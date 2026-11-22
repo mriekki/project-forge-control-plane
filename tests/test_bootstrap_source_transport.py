@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from bootstrap_source_transport import qualify_one, validate_scope, PERMISSIONS, stage, TransportStageError
+from bootstrap_source_transport import qualify_one, validate_scope, PERMISSIONS, stage, TransportStageError, safe_installation_token
 from bootstrap_source_binding import SourceBindingError
 from test_bootstrap_binding_preview import BindingPreviewTests
 
@@ -100,3 +100,21 @@ class SafeStageDiagnosticTests(unittest.TestCase):
                 stage("app-jwt", fn)
             self.assertEqual(str(ctx.exception), expected)
             self.assertNotIn(sentinel, str(ctx.exception))
+
+class OpaqueInstallationTokenTests(unittest.TestCase):
+    def test_legacy_and_new_stateless_tokens_are_opaque(self):
+        for token in ("ghs_" + "a" * 36,
+                      "ghs_12345_" + "a" * 80 + "." + "b" * 500 + "." + "c" * 100):
+            self.assertTrue(safe_installation_token(token))
+        for token in (None, "", "x\r\nInjected: y", "x y", "x\x00y", "x" * 16385):
+            self.assertFalse(safe_installation_token(token))
+
+    def test_new_token_runs_through_full_scope_checks_and_revocation(self):
+        test = ImmutableSourceTokenTests()
+        token = "ghs_12345_" + "a" * 80 + "." + "b" * 500 + "." + "c" * 100
+        def setup(repo, mint, scope):
+            mint["token"] = token
+        calls, validator = test.run_scenario(setup)
+        self.assertEqual(calls[2][2], token)
+        self.assertEqual(calls[-1], ("DELETE", "/installation/token", token, None))
+        validator.assert_called_once()
