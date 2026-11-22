@@ -2,11 +2,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.bootstrap_operational_source import inventory, materialize_qualified, verify_proof
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT/'tools'))
+from bootstrap_operational_source import inventory, materialize_qualified, verify_proof
 from tools.bootstrap_source_binding import SourceBindingError
 
 class OperationalSourceTests(unittest.TestCase):
@@ -53,6 +57,28 @@ class OperationalSourceTests(unittest.TestCase):
             with self.assertRaises(SourceBindingError):
                 materialize_qualified(policy,{},None,None,root,root/"bootstrap",
                     jwt_fn=lambda *a:"jwt",qualify_fn=mismatch)
+
+    def test_partial_copy_is_removed_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            policy={"original":{"logicalRevision":"a"*40},
+                    "candidate":{"sourceTree":"b"*40,"sourceRoot":"packages/bootstrap"}}
+            def qualify(binding,descriptor,jwt,path):
+                path.mkdir()
+                if path.name == "candidate":
+                    selected=path/"packages/bootstrap"
+                    selected.mkdir(parents=True)
+                    (selected/"file.txt").write_text("fixture")
+                return {"same":True}
+            def interrupted(src,destination,**kwargs):
+                destination.mkdir()
+                (destination/"partial.txt").write_text("incomplete")
+                raise OSError("interrupted")
+            with patch("bootstrap_operational_source.shutil.copytree", side_effect=interrupted):
+                with self.assertRaises(OSError):
+                    materialize_qualified(policy,{},None,None,root,root/"bootstrap",
+                        jwt_fn=lambda *a:"jwt",qualify_fn=qualify)
+            self.assertFalse((root/"bootstrap").exists())
 
     def test_link_and_excess_files_refused(self):
         with tempfile.TemporaryDirectory() as temp:
