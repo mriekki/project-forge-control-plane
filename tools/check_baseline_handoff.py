@@ -19,6 +19,12 @@ BASELINE_FILES = (
 )
 
 
+if __package__:
+    from .profile_baselines import PROFILES, ProfileBaselineError, filesystem_read, verify_profile
+else:
+    from profile_baselines import PROFILES, ProfileBaselineError, filesystem_read, verify_profile
+
+
 class BaselineHandoffError(RuntimeError):
     pass
 
@@ -76,8 +82,15 @@ def _generated_bytes(generated: Path) -> dict[str, bytes]:
     return {name: _read_bytes(generated, name) for name in BASELINE_FILES}
 
 
-def validate_generated(generated: Path) -> dict[str, bytes]:
+def validate_generated(generated: Path, *, approved_profile: str | None = None) -> dict[str, bytes]:
     generated = generated.resolve()
+    if approved_profile is not None:
+        try:
+            values, count = verify_profile(approved_profile, *filesystem_read(generated))
+        except (ProfileBaselineError, OSError) as exc:
+            raise BaselineHandoffError(str(exc)) from exc
+        print(f"PASS explicit profile baseline ownership ({count} managed paths)")
+        return values
     values = _generated_bytes(generated)
 
     core = _managed_paths(values["CORE_BASELINE.json"], "CORE_BASELINE.json")
@@ -102,10 +115,12 @@ def validate_generated(generated: Path) -> dict[str, bytes]:
     return values
 
 
-def validate_copied(generated: Path, target: Path) -> dict[str, bytes]:
-    expected = validate_generated(generated)
+def validate_copied(generated: Path, target: Path, *, approved_profile: str | None = None) -> dict[str, bytes]:
+    expected = validate_generated(generated, approved_profile=approved_profile)
+    if approved_profile is not None:
+        validate_generated(target, approved_profile=approved_profile)
     target = target.resolve()
-    for name in BASELINE_FILES:
+    for name in expected:
         actual = _read_bytes(target, name)
         if actual != expected[name]:
             raise BaselineHandoffError(
@@ -131,10 +146,10 @@ def _git(root: Path, *args: str) -> bytes:
     return completed.stdout
 
 
-def validate_staged(generated: Path, target: Path) -> None:
-    expected = validate_copied(generated, target)
+def validate_staged(generated: Path, target: Path, *, approved_profile: str | None = None) -> None:
+    expected = validate_copied(generated, target, approved_profile=approved_profile)
     target = target.resolve()
-    for name in BASELINE_FILES:
+    for name in expected:
         staged = _git(target, "show", f":{name}")
         if staged != expected[name]:
             raise BaselineHandoffError(
@@ -158,6 +173,9 @@ def build_parser() -> argparse.ArgumentParser:
     staged = subparsers.add_parser("staged", help="Compare staged baseline blobs with generated originals")
     staged.add_argument("--generated", type=Path, required=True)
     staged.add_argument("--target", type=Path, required=True)
+    for command in (generated, copied, staged):
+        command.add_argument("--approved-profile", choices=tuple(PROFILES),
+                             help="Independently accepted exact generation profile (not authorization)")
     return parser
 
 
@@ -165,11 +183,11 @@ def main() -> int:
     args = build_parser().parse_args()
     try:
         if args.command == "generated":
-            validate_generated(args.generated)
+            validate_generated(args.generated, approved_profile=args.approved_profile)
         elif args.command == "copied":
-            validate_copied(args.generated, args.target)
+            validate_copied(args.generated, args.target, approved_profile=args.approved_profile)
         elif args.command == "staged":
-            validate_staged(args.generated, args.target)
+            validate_staged(args.generated, args.target, approved_profile=args.approved_profile)
         else:  # pragma: no cover - argparse enforces the command set.
             raise BaselineHandoffError(f"Unsupported command: {args.command}")
     except BaselineHandoffError as exc:

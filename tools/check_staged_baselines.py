@@ -18,6 +18,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
+if __package__:
+    from .profile_baselines import PROFILES, ProfileBaselineError, safe_path, verify_profile
+else:
+    from profile_baselines import PROFILES, ProfileBaselineError, safe_path, verify_profile
+
+
 class StagedBaselineError(RuntimeError):
     pass
 
@@ -187,8 +193,32 @@ def _validate_component(
     return count
 
 
-def validate_staged_baselines(root: Path) -> int:
+def validate_staged_baselines(root: Path, *, approved_profile: str | None = None) -> int:
     root = root.resolve()
+    if approved_profile is not None:
+        # Read exact stage-0 regular files, not a worktree or a symlink blob.
+        def entries(name):
+            return _git(root, "ls-files", "--stage", "-z", "--", ":(literal)" + safe_path(name))
+        def exists(name):
+            return bool(entries(name))
+        def read(name):
+            record = entries(name)
+            if not record:
+                raise ProfileBaselineError("Missing staged managed file or baseline")
+            parts = record.split(b"\x00")
+            if len(parts) != 2 or parts[1] != b"":
+                raise ProfileBaselineError("Ambiguous staged managed file")
+            header, filename = parts[0].split(b"\t", 1)
+            mode, oid, stage = header.split(b" ")
+            if (mode not in (b"100644", b"100755") or stage != b"0"
+                    or filename.decode("utf-8") != name):
+                raise ProfileBaselineError("Unsafe staged managed file")
+            return _git(root, "cat-file", "blob", oid.decode("ascii"))
+        try:
+            _, total = verify_profile(approved_profile, read, exists)
+            return total
+        except (ProfileBaselineError, OSError, UnicodeError) as exc:
+            raise StagedBaselineError(str(exc)) from exc
     manifest = _staged_json(root, "PROJECT_BOOTSTRAP.json")
     approved = (manifest.get("generation") or {}).get("project-forge") or {}
     project_forge = _staged_json(root, "PROJECT_FORGE_BASELINE.json")
@@ -232,13 +262,15 @@ def validate_staged_baselines(root: Path) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Git worktree root")
+    parser.add_argument("--approved-profile", choices=tuple(PROFILES),
+                        help="Independently accepted exact generation profile (not authorization)")
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     try:
-        total = validate_staged_baselines(args.root)
+        total = validate_staged_baselines(args.root, approved_profile=args.approved_profile)
     except StagedBaselineError as exc:
         print(f"FAIL staged Project Forge managed baselines: {exc}", file=sys.stderr)
         return 2
