@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 from bootstrap_source_binding import SourceBindingError, exact, need, positive, resolve_binding, verify_checkout
@@ -24,6 +25,22 @@ from bootstrap_source_binding import SourceBindingError, exact, need, positive, 
 API = "https://api.github.com"
 MAX = 2 * 1024 * 1024
 PERMISSIONS = {"contents": "read", "metadata": "read"}
+
+
+class TransportStageError(SourceBindingError):
+    """Only fixed stage names and numeric HTTP status may be logged."""
+
+
+def stage(label, operation, *args):
+    try:
+        return operation(*args)
+    except TransportStageError:
+        raise
+    except urllib.error.HTTPError as exc:
+        status = exc.code if type(exc.code) is int and 400 <= exc.code <= 599 else 0
+        raise TransportStageError(f"{label}: http-{status}") from None
+    except Exception:
+        raise TransportStageError(f"{label}: refused") from None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -134,34 +151,32 @@ def git_checkout(binding, token, destination):
 
 def qualify_one(binding, descriptor, jwt, destination, request=api, checkout=git_checkout,
                 verify=verify_checkout):
-    install = request("GET", "/repos/" + binding["repository"] + "/installation", jwt)
+    install = stage("installation-lookup", request, "GET", "/repos/" + binding["repository"] + "/installation", jwt)
     owner = binding["repository"].split("/")[0]
-    need(isinstance(install, dict) and positive(install.get("id"))
-         and install.get("account", {}).get("login") == owner
-         and install.get("suspended_at") is None, "Unexpected source App installation")
-    minted = request("POST", f"/app/installations/{install['id']}/access_tokens", jwt,
-                     {"repository_ids": [binding["repositoryId"]], "permissions": {"contents": "read"}})
+    stage("installation-identity", need, isinstance(install, dict) and positive(install.get("id"))
+          and install.get("account", {}).get("login") == owner
+          and install.get("suspended_at") is None, "Unexpected source App installation")
+    minted = stage("token-mint", request, "POST", f"/app/installations/{install['id']}/access_tokens", jwt,
+                   {"repository_ids": [binding["repositoryId"]], "permissions": {"contents": "read"}})
     token = minted.get("token") if isinstance(minted, dict) else None
-    need(isinstance(token, str) and re.fullmatch(r"[A-Za-z0-9_-]{16,512}", token) is not None,
-         "Exact source installation token missing")
-    # Revoke even on mismatched permissions, wrong metadata, checkout failure,
-    # or post-fetch identity mismatch. Never emit token or raw API output.
+    stage("token-format", need, isinstance(token, str) and re.fullmatch(r"[A-Za-z0-9_-]{16,512}", token) is not None,
+          "Exact source installation token missing")
     try:
-        need(minted.get("permissions") == PERMISSIONS, "Source token permissions exceed or differ from policy")
-        # The token mint response itself must name exactly the immutable ID.
+        stage("token-permissions", need, minted.get("permissions") == PERMISSIONS,
+              "Source token permissions exceed or differ from policy")
         repos = minted.get("repositories")
-        need(isinstance(repos, list) and len(repos) == 1
-             and type(repos[0].get("id")) is int and repos[0]["id"] == binding["repositoryId"]
-             and repos[0].get("full_name") == binding["repository"], "Source mint repository differs")
-        observe_scope(binding, descriptor, token, request)
-        checkout(binding, token, destination)
-        repo = observe_scope(binding, descriptor, token, request)
-        result = verify(destination, descriptor, binding, repo)
-        # Verify identity again after reading and hashing the checkout.
-        observe_scope(binding, descriptor, token, request)
+        stage("mint-repository-identity", need, isinstance(repos, list) and len(repos) == 1
+              and isinstance(repos[0], dict) and type(repos[0].get("id")) is int
+              and repos[0]["id"] == binding["repositoryId"]
+              and repos[0].get("full_name") == binding["repository"], "Source mint repository differs")
+        stage("scope-before-fetch", observe_scope, binding, descriptor, token, request)
+        stage("exact-git-checkout", checkout, binding, token, destination)
+        repo = stage("scope-after-fetch", observe_scope, binding, descriptor, token, request)
+        result = stage("source-tree-verification", verify, destination, descriptor, binding, repo)
+        stage("scope-after-verify", observe_scope, binding, descriptor, token, request)
         return result
     finally:
-        request("DELETE", "/installation/token", token)
+        stage("token-revocation", request, "DELETE", "/installation/token", token)
 
 
 def qualify_transport(policy, descriptor, client_id, key, scratch):
@@ -169,8 +184,8 @@ def qualify_transport(policy, descriptor, client_id, key, scratch):
     # failure, and no source code is executed at any point.
     with tempfile.TemporaryDirectory(prefix="pf-bootstrap-source-", dir=scratch) as tmp:
         root = Path(tmp)
-        jwt = create_jwt(client_id, key, root)
-        original = qualify_one(policy["original"], descriptor, jwt, root / "original")
-        candidate = qualify_one(policy["candidate"], descriptor, jwt, root / "candidate")
+        jwt = stage("app-jwt", create_jwt, client_id, key, root)
+        original = stage("original-binding", qualify_one, policy["original"], descriptor, jwt, root / "original")
+        candidate = stage("candidate-binding", qualify_one, policy["candidate"], descriptor, jwt, root / "candidate")
         need(original == candidate, "Original and relocated source observations differ")
         return original

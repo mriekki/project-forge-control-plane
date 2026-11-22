@@ -2,12 +2,13 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from bootstrap_source_transport import qualify_one, validate_scope, PERMISSIONS
+from bootstrap_source_transport import qualify_one, validate_scope, PERMISSIONS, stage, TransportStageError
 from bootstrap_source_binding import SourceBindingError
 from test_bootstrap_binding_preview import BindingPreviewTests
 
@@ -85,3 +86,17 @@ class ImmutableSourceTokenTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SafeStageDiagnosticTests(unittest.TestCase):
+    def test_never_records_sensitive_exception_or_http_url(self):
+        sentinel = "REDACT-ME"
+        def fail():
+            raise RuntimeError(sentinel)
+        def http_fail():
+            raise urllib.error.HTTPError("https://example.invalid/" + sentinel, 403,
+                                        sentinel, {}, None)
+        for fn, expected in ((fail, "app-jwt: refused"), (http_fail, "app-jwt: http-403")):
+            with self.assertRaises(TransportStageError) as ctx:
+                stage("app-jwt", fn)
+            self.assertEqual(str(ctx.exception), expected)
+            self.assertNotIn(sentinel, str(ctx.exception))

@@ -78,7 +78,9 @@ class BindingPreviewTests(unittest.TestCase):
         transport = (ROOT / "tools/bootstrap_source_transport.py").read_text()
         self.assertIn('"repository_ids": [binding["repositoryId"]]', transport)
         self.assertIn('"permissions": {"contents": "read"}', transport)
-        self.assertIn("observe_scope(binding, descriptor, token, request)", transport)
+        self.assertIn('stage("scope-before-fetch", observe_scope, binding, descriptor, token, request)', transport)
+        self.assertIn('stage("scope-after-fetch", observe_scope, binding, descriptor, token, request)', transport)
+        self.assertIn('stage("scope-after-verify", observe_scope, binding, descriptor, token, request)', transport)
         for forbidden in ("permission-contents: write", "permission-workflows: write", "issues: write",
                           "git push", "generate_snapshot.py", "npm publish", "id-token: write",
                           "upload-artifact", "target-token"):
