@@ -40,60 +40,11 @@ jobs:
           PROTECTED_BINDINGS: ${{ secrets.BOOTSTRAP_SOURCE_BINDING_PREVIEW }}
           ORIGINAL_REPOSITORY: ${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY }}
         run: python tools/bootstrap_binding_preview.py resolve --scratch "$RUNNER_TEMP"
-      - name: Mint exact original source-only installation token
-        id: original-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
-        with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: ${{ steps.binding.outputs.original_owner }}
-          repositories: ${{ steps.binding.outputs.original_name }}
-          permission-contents: read
-      - name: Mint exact candidate source-only installation token
-        id: candidate-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
-        with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: ${{ steps.binding.outputs.candidate_owner }}
-          repositories: ${{ steps.binding.outputs.candidate_name }}
-          permission-contents: read
-      - name: Observe original source repository through its own token
-        shell: bash
+      - name: Qualify exact immutable-ID source-only App grants and sanitized transport
         env:
-          GH_TOKEN: ${{ steps.original-token.outputs.token }}
-          SOURCE_REPOSITORY: ${{ steps.binding.outputs.original_repository }}
-        run: |
-          set -euo pipefail
-          umask 077
-          gh api "/repos/$SOURCE_REPOSITORY" --jq '{full_name,id,private,archived}' > "$RUNNER_TEMP/pf-bootstrap-original-repo.json" 2>/dev/null
-      - name: Observe candidate source repository through its own token
-        shell: bash
-        env:
-          GH_TOKEN: ${{ steps.candidate-token.outputs.token }}
-          SOURCE_REPOSITORY: ${{ steps.binding.outputs.candidate_repository }}
-        run: |
-          set -euo pipefail
-          umask 077
-          gh api "/repos/$SOURCE_REPOSITORY" --jq '{full_name,id,private,archived}' > "$RUNNER_TEMP/pf-bootstrap-candidate-repo.json" 2>/dev/null
-      - name: Checkout exact original Bootstrap source (read only)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: ${{ steps.binding.outputs.original_repository }}
-          ref: ${{ steps.binding.outputs.original_commit }}
-          token: ${{ steps.original-token.outputs.token }}
-          path: original-source
-          persist-credentials: false
-      - name: Checkout exact candidate Bootstrap source (read only)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: ${{ steps.binding.outputs.candidate_repository }}
-          ref: ${{ steps.binding.outputs.candidate_commit }}
-          token: ${{ steps.candidate-token.outputs.token }}
-          path: candidate-source
-          persist-credentials: false
-      - name: Independently verify identical Bootstrap source and public contract
-        run: python tools/bootstrap_binding_preview.py verify --scratch "$RUNNER_TEMP" --original original-source --candidate candidate-source
+          APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: python tools/bootstrap_binding_preview.py verify --scratch "$RUNNER_TEMP"
       - name: Recheck exact public Control Plane main
         shell: bash
         run: |

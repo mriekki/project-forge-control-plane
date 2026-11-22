@@ -70,11 +70,15 @@ class BindingPreviewTests(unittest.TestCase):
 
     def test_preview_is_default_off_source_only_and_nonpublishing(self):
         body = (ROOT / ".github/workflows/bootstrap-source-transport-preview.yml").read_text()
-        for value in ("vars.PF_BOOTSTRAP_BINDING_PREVIEW_ENABLED == 'true'", "permission-contents: read",
+        for value in ("vars.PF_BOOTSTRAP_BINDING_PREVIEW_ENABLED == 'true'", "Qualify exact immutable-ID source-only App grants and sanitized transport",
                       "BOOTSTRAP_SOURCE_BINDING_PREVIEW", "GENERATION_AUTHORIZED=false",
                       "PRODUCTION_CHANGED=false", "persist-credentials: false"):
             self.assertIn(value, body)
-        self.assertEqual(body.count("permission-contents: read"), 2)
+        self.assertNotIn("actions/create-github-app-token@", body)
+        transport = (ROOT / "tools/bootstrap_source_transport.py").read_text()
+        self.assertIn('"repository_ids": [binding["repositoryId"]]', transport)
+        self.assertIn('"permissions": {"contents": "read"}', transport)
+        self.assertIn("observe_scope(binding, descriptor, token, request)", transport)
         for forbidden in ("permission-contents: write", "permission-workflows: write", "issues: write",
                           "git push", "generate_snapshot.py", "npm publish", "id-token: write",
                           "upload-artifact", "target-token"):

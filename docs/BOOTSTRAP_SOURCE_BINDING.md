@@ -52,3 +52,7 @@ Do not enable or configure the rehearsal until the protected policy, exact App
 installation's least-privilege access and separate human security gate have
 been reviewed. Do not put private binding values on the public issue or in
 Git. The existing generation/adoption workflows and secrets are untouched.
+
+### Independent review remediation
+
+The prospective rehearsal now uses the existing App's standard JWT/API flow solely to obtain short-lived installation tokens by immutable repository ID. It checks the token response's exact permissions and single repository, then authenticated token inventory and name/ID before any download, after checkout and after source verification. Git fetches only the selected commit with redirects/submodule recursion disabled; child environment excludes App credentials, raw private output is withheld, shallow scratch checkouts are discarded, and the token is revoked on every outcome. No private repository locator is placed in workflow outputs. Actual scoped-token grant and sanitized transport evidence remain mandatory before activation. No change to the current generation/adoption routes.
