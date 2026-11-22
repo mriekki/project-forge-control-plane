@@ -76,8 +76,9 @@ def materialize_qualified(policy, descriptor, client_id, key, scratch, destinati
             need(candidate.is_dir() and not candidate.is_symlink(), "Unsafe relocated source root")
         source = inventory(candidate)
         try:
-            shutil.copytree(candidate, destination, symlinks=True, copy_function=shutil.copy2)
+            # Even a partial copy error must leave no executable source tree.
             created = True
+            shutil.copytree(candidate, destination, symlinks=True, copy_function=shutil.copy2)
             need(inventory(destination) == source, "Materialized Bootstrap bytes/modes differ")
         except Exception:
             if created and destination.is_dir() and not destination.is_symlink():
