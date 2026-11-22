@@ -53,7 +53,7 @@ class BootstrapSourceBindingTests(unittest.TestCase):
                 "url": "https://raw.githubusercontent.com/mriekki/project-forge-platform/" + "b"*40
                        + "/chatgpt/bootstrap-contracts/" + Path(filename).name,
                 "sha256": hashlib.sha256(blobs[filename].encode()).hexdigest()}
-        descriptor = {"channel": "stable", "generation": {"bootstrap": {
+        descriptor = {"schemaVersion": 1, "channel": "stable", "generation": {"bootstrap": {
             "revision": revision, "protocolVersion": 12, "catalogVersion": 13,
             "portableRequirements": projection}}}
         return checkout, root, descriptor, binding, repo
