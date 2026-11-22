@@ -99,35 +99,31 @@ def resolve(scratch):
     verify_public_bytes(descriptor)
     write_private(scratch / "pf-bootstrap-bindings.json", raw)
     write_private(scratch / "pf-bootstrap-descriptor.json", descriptor_bytes)
-    outputs = {}
+    # Protected locators never become Action outputs.
     for label in ("original", "candidate"):
         binding = config[label]
-        owner, name = binding["repository"].split("/")
+        _, name = binding["repository"].split("/")
         for value in (binding["repository"], name, str(binding["repositoryId"]), binding["sourceTree"]):
             print("::add-mask::" + value)
         if label == "candidate":
             print("::add-mask::" + binding["sourceCommit"])
             print("::add-mask::" + binding["sourceRoot"])
-        outputs.update({label + "_repository": binding["repository"], label + "_owner": owner,
-                        label + "_name": name, label + "_commit": binding["sourceCommit"]})
-    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as out:
-        for key, value in outputs.items():
-            out.write(f"{key}={value}\n")
     print("Exact protected relocation policy and public contract bytes verified.")
 
 
-def verify(scratch, original, candidate):
+def verify(scratch):
+    from bootstrap_source_transport import qualify_transport
     raw = (scratch / "pf-bootstrap-bindings.json").read_bytes()
     saved = (scratch / "pf-bootstrap-descriptor.json").read_bytes()
     config = strict_json(raw)
     policy, descriptor = resolve_policy(raw, saved, config["original"]["repository"])
-    results = []
-    for label, checkout in (("original", original), ("candidate", candidate)):
-        observed = strict_json((scratch / ("pf-bootstrap-" + label + "-repo.json")).read_bytes())
-        results.append(verify_checkout(checkout, descriptor, policy[label], observed))
-    need(results[0] == results[1], "Original and relocated Bootstrap observations differ")
+    key = os.environ.pop("APP_PRIVATE_KEY")
+    client = os.environ.pop("APP_CLIENT_ID")
+    result = qualify_transport(policy, descriptor, client, key, scratch)
     need(fetch(public_contract.DEFAULT_DESCRIPTOR_URL) == saved, "Public descriptor changed during preview")
-    print(json.dumps(results[0], sort_keys=True))
+    # Only public logical identity/count/digest match booleans are emitted;
+    # never the physical source locator, original/candidate Git trees or tokens.
+    print(json.dumps(result, sort_keys=True))
     print("BOOTSTRAP_TRANSPORT_PREVIEW_MATCH SOURCE_BINDING_ACTIVATED=false TARGET_WRITES=false")
 
 
@@ -135,17 +131,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("resolve", "verify"))
     parser.add_argument("--scratch", required=True, type=Path)
-    parser.add_argument("--original", type=Path)
-    parser.add_argument("--candidate", type=Path)
     args = parser.parse_args()
     try:
         if args.mode == "resolve":
             resolve(args.scratch)
         else:
-            need(args.original is not None and args.candidate is not None, "Exact checkouts required")
-            verify(args.scratch, args.original, args.candidate)
+            verify(args.scratch)
         return 0
-    except (OSError, TypeError, KeyError, ValueError, RuntimeError):
+    except Exception:
         # Never include private locator, policy, source path or raw API body.
         print("Bootstrap source transport preview refused", file=sys.stderr)
         return 2
