@@ -64,6 +64,7 @@ jobs:
         run: python tools/project_forge_contract.py resolve-bootstrap
 
       - name: Create Bootstrap source installation token
+        if: vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED != 'true'
         id: source-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
@@ -72,6 +73,56 @@ jobs:
           owner: ${{ steps.bootstrap-source.outputs.owner }}
           repositories: ${{ steps.bootstrap-source.outputs.name }}
           permission-contents: read
+
+      - name: Checkout accepted Bootstrap source
+        if: vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED != 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY }}
+          ref: ${{ steps.public-contract.outputs.bootstrap_revision }}
+          token: ${{ steps.source-token.outputs.token }}
+          path: bootstrap
+          fetch-depth: 1
+
+      - name: Qualify approved monorepo Bootstrap source (separate gate)
+        if: vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED == 'true'
+        shell: bash
+        env:
+          PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED: ${{ vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED }}
+          PROTECTED_OPERATIONAL_BINDINGS: ${{ secrets.BOOTSTRAP_OPERATIONAL_SOURCE_BINDING }}
+          ORIGINAL_REPOSITORY: ${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY }}
+          APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          python tools/bootstrap_operational_source.py materialize --scratch "$RUNNER_TEMP" --output bootstrap
+
+      - name: Verify accepted Bootstrap source and catalog
+        id: bootstrap
+        shell: bash
+        env:
+          BOOTSTRAP_REVISION: ${{ steps.public-contract.outputs.bootstrap_revision }}
+          BOOTSTRAP_PROTOCOL_VERSION: ${{ steps.public-contract.outputs.bootstrap_protocol_version }}
+          BOOTSTRAP_CATALOG_VERSION: ${{ steps.public-contract.outputs.bootstrap_catalog_version }}
+        run: |
+          set -euo pipefail
+          if [ "${{ vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED }}" = 'true' ]; then
+            python tools/bootstrap_operational_source.py verify \
+              --scratch "$RUNNER_TEMP" --output bootstrap --revision "$BOOTSTRAP_REVISION"
+            sha="$BOOTSTRAP_REVISION"
+          else
+            sha="$(git -C bootstrap rev-parse HEAD)"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+          if [ "$sha" != "$BOOTSTRAP_REVISION" ]; then
+            echo "Accepted Bootstrap checkout does not match public generation revision" >&2
+            exit 2
+          fi
+          python tools/project_forge_contract.py verify-bootstrap \
+            --root bootstrap \
+            --protocol-version "$BOOTSTRAP_PROTOCOL_VERSION" \
+            --catalog-version "$BOOTSTRAP_CATALOG_VERSION"
 
       - name: Create target installation token
         id: target-token
@@ -104,36 +155,6 @@ jobs:
           fi
           echo "login=${bot_login}" >> "$GITHUB_OUTPUT"
           echo "email=${bot_id}+${bot_login}@users.noreply.github.com" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout accepted Bootstrap source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: ${{ secrets.BOOTSTRAP_SOURCE_REPOSITORY }}
-          ref: ${{ steps.public-contract.outputs.bootstrap_revision }}
-          token: ${{ steps.source-token.outputs.token }}
-          path: bootstrap
-          fetch-depth: 1
-
-      - name: Verify accepted Bootstrap source and catalog
-        id: bootstrap
-        shell: bash
-        env:
-          BOOTSTRAP_REVISION: ${{ steps.public-contract.outputs.bootstrap_revision }}
-          BOOTSTRAP_PROTOCOL_VERSION: ${{ steps.public-contract.outputs.bootstrap_protocol_version }}
-          BOOTSTRAP_CATALOG_VERSION: ${{ steps.public-contract.outputs.bootstrap_catalog_version }}
-        run: |
-          set -euo pipefail
-          sha="$(git -C bootstrap rev-parse HEAD)"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
-          if [ "$sha" != "$BOOTSTRAP_REVISION" ]; then
-            echo "Accepted Bootstrap checkout does not match public generation revision" >&2
-            exit 2
-          fi
-          python tools/project_forge_contract.py verify-bootstrap \
-            --root bootstrap \
-            --protocol-version "$BOOTSTRAP_PROTOCOL_VERSION" \
-            --catalog-version "$BOOTSTRAP_CATALOG_VERSION"
 
       - name: Checkout private target seed
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
