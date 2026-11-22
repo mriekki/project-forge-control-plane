@@ -101,12 +101,13 @@ jobs:
         id: bootstrap
         shell: bash
         env:
+          PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED: ${{ vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED }}
           BOOTSTRAP_REVISION: ${{ steps.public-contract.outputs.bootstrap_revision }}
           BOOTSTRAP_PROTOCOL_VERSION: ${{ steps.public-contract.outputs.bootstrap_protocol_version }}
           BOOTSTRAP_CATALOG_VERSION: ${{ steps.public-contract.outputs.bootstrap_catalog_version }}
         run: |
           set -euo pipefail
-          if [ "${{ vars.PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED }}" = 'true' ]; then
+          if [ "$PF_BOOTSTRAP_MONOREPO_SOURCE_ENABLED" = 'true' ]; then
             python tools/bootstrap_operational_source.py verify \
               --scratch "$RUNNER_TEMP" --output bootstrap --revision "$BOOTSTRAP_REVISION"
             sha="$BOOTSTRAP_REVISION"
