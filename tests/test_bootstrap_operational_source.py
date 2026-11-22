@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'tools'))
 from bootstrap_operational_source import inventory, materialize_qualified, verify_proof
-from tools.bootstrap_source_binding import SourceBindingError
+from bootstrap_source_binding import SourceBindingError
 
 class OperationalSourceTests(unittest.TestCase):
     def test_exact_candidate_preserves_content_and_logical_revision_without_target_token(self):
