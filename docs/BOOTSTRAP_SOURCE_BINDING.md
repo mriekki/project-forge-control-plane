@@ -35,3 +35,20 @@ unchanged. Before switching generation:
 
 The verifier result is nonauthorizing; successful CI alone does not establish
 live source permissions, approved generation or Production readiness.
+
+## Read-only prospective transport rehearsal
+
+A separate default-off owner-only workflow prepares an operational transport
+rehearsal using the **existing** Builder App. It consumes one protected operator
+policy with the exact descriptor SHA-256 and original/candidate bindings; it
+requires the original locator to match the existing protected source mapping
+and both bindings to preserve the same logical revision and whole source tree.
+Its two short-lived tokens request Contents: read on exactly one repository
+each. No target token, provider interaction, source execution or write is used.
+The owner issue has an empty body. The result establishes prospective read
+transport and identical source, never an active routing change.
+
+Do not enable or configure the rehearsal until the protected policy, exact App
+installation's least-privilege access and separate human security gate have
+been reviewed. Do not put private binding values on the public issue or in
+Git. The existing generation/adoption workflows and secrets are untouched.
