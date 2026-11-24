@@ -126,9 +126,18 @@ class OptionalProfileHandoffTests(unittest.TestCase):
         with self.assertRaises(StagedBaselineError):
             validate_staged_baselines(target, approved_profile=FEEDBACK)
 
-    def test_active_workflow_does_not_pass_optional_profile_switch(self):
+    def test_workflow_gates_all_optional_profile_switches_on_reviewed_policy(self):
         path = Path(__file__).resolve().parents[1] / ".github/workflows/generate-project.yml"
-        self.assertNotIn("--approved-profile", path.read_text())
+        workflow = path.read_text()
+        self.assertLess(workflow.index("Select independently reviewed generation profile"),
+                        workflow.index("Validate private approved manifest"))
+        self.assertIn("APPROVED_PROFILE: ${{ steps.profile-policy.outputs.profile }}", workflow)
+        self.assertIn('--approved-generation-profile "$APPROVED_PROFILE"', workflow)
+        self.assertEqual(workflow.count('if [ "$APPROVED_PROFILE" != \'greenfield-project\' ]; then'), 3)
+        for command in ("check_baseline_handoff.py generated", "check_baseline_handoff.py copied",
+                        "check_baseline_handoff.py staged", "check_staged_baselines.py --root"):
+            line = next(line for line in workflow.splitlines() if command in line)
+            self.assertIn('"${profile_args[@]}"', line)
 
 
 if __name__ == "__main__":

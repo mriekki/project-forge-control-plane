@@ -172,17 +172,43 @@ jobs:
             --root target \
             --repository "${{ steps.request.outputs.target_repository }}"
 
+      - name: Select independently reviewed generation profile
+        id: profile-policy
+        shell: bash
+        env:
+          BOOTSTRAP_REVISION: ${{ steps.bootstrap.outputs.sha }}
+          STABLE_PACKAGE_VERSION: ${{ steps.public-contract.outputs.stable_package_version }}
+          TARGET_REPOSITORY: ${{ steps.request.outputs.target_repository }}
+          REQUEST_AUTHOR: ${{ steps.request.outputs.request_author }}
+        run: |
+          set -euo pipefail
+          python tools/optional_generation_policy.py \
+            --policy config/optional-generation-approvals.json \
+            --manifest target/PROJECT_BOOTSTRAP.json \
+            --bootstrap-revision "$BOOTSTRAP_REVISION" \
+            --stable-package-version "$STABLE_PACKAGE_VERSION" \
+            --target-repository "$TARGET_REPOSITORY" \
+            --request-author "$REQUEST_AUTHOR"
+
       - name: Validate private approved manifest
         id: manifest
         shell: bash
+        env:
+          APPROVED_PROFILE: ${{ steps.profile-policy.outputs.profile }}
+          APPROVED_PACKAGE_VERSION: ${{ steps.profile-policy.outputs.package_version }}
         run: |
+          set -euo pipefail
+          profile_args=()
+          if [ "$APPROVED_PROFILE" != 'greenfield-project' ]; then
+            profile_args=(--approved-generation-profile "$APPROVED_PROFILE" --approved-package-version "$APPROVED_PACKAGE_VERSION")
+          fi
           python bootstrap/tools/remote_generation.py validate-manifest \
             --manifest target/PROJECT_BOOTSTRAP.json \
             --request-author "${{ steps.request.outputs.request_author }}" \
             --expected-bootstrap-commit "${{ steps.bootstrap.outputs.sha }}" \
             --expected-target-repository "${{ steps.request.outputs.target_repository }}" \
             --expected-target-owner "${{ steps.request.outputs.target_owner }}" \
-            --allowed-target-owner "${{ steps.request.outputs.target_owner }}"
+            --allowed-target-owner "${{ steps.request.outputs.target_owner }}" "${profile_args[@]}"
 
       - name: Acquire exact Project Forge package artifact
         id: project-forge-package
@@ -251,6 +277,7 @@ jobs:
           PROJECT_FORGE_PACKAGE: ${{ steps.manifest.outputs.project_forge_package }}
           PROJECT_FORGE_VERSION: ${{ steps.manifest.outputs.project_forge_version }}
           PROJECT_FORGE_PROFILE: ${{ steps.manifest.outputs.project_forge_profile }}
+          APPROVED_PROFILE: ${{ steps.profile-policy.outputs.profile }}
           PROJECT_FORGE_INTEGRITY: ${{ steps.manifest.outputs.project_forge_integrity }}
           PYTHONPYCACHEPREFIX: ${{ runner.temp }}/project-forge-pycache
         run: |
@@ -293,13 +320,19 @@ jobs:
                   raise SystemExit(
                       f'PROJECT_FORGE_BASELINE.json {key} mismatch: expected {expected[key]!r}, found {project_forge.get(key)!r}'
                   )
+          from tools.profile_baselines import PROFILES
+          approved_profile = os.environ['APPROVED_PROFILE']
+          if expected['profile'] != approved_profile:
+              raise SystemExit('Generated profile differs from independently reviewed selection')
           components = project_forge.get('components') or {}
-          if set(components) != {'core', 'deployment'}:
-              raise SystemExit(
-                  f'Project Forge baseline must contain core and deployment components; found {sorted(components)}'
-              )
+          if set(components) != set(PROFILES[approved_profile]):
+              raise SystemExit('Generated component inventory differs from independently reviewed profile')
           PY
-          python tools/check_baseline_handoff.py generated --generated "$RUNNER_TEMP/generated"
+          profile_args=()
+          if [ "$APPROVED_PROFILE" != 'greenfield-project' ]; then
+            profile_args=(--approved-profile "$APPROVED_PROFILE")
+          fi
+          python tools/check_baseline_handoff.py generated --generated "$RUNNER_TEMP/generated" "${profile_args[@]}"
 
           if find "$RUNNER_TEMP/generated" -type f -name '*.pyc' -print -quit | grep -q .; then
             echo "Generated workspace contains Python bytecode; validation caches must stay outside publication." >&2
@@ -317,12 +350,17 @@ jobs:
         shell: bash
         env:
           PROJECT_SLUG: ${{ steps.manifest.outputs.project_slug }}
+          APPROVED_PROFILE: ${{ steps.profile-policy.outputs.profile }}
           BOT_LOGIN: ${{ steps.app-bot.outputs.login }}
           BOT_EMAIL: ${{ steps.app-bot.outputs.email }}
         run: |
           set -euo pipefail
           target="$GITHUB_WORKSPACE/target"
           generated="$RUNNER_TEMP/generated"
+          profile_args=()
+          if [ "$APPROVED_PROFILE" != 'greenfield-project' ]; then
+            profile_args=(--approved-profile "$APPROVED_PROFILE")
+          fi
 
           target_branch="$(git -C "$target" branch --show-current)"
           if [ -z "$target_branch" ]; then
@@ -332,14 +370,14 @@ jobs:
 
           find "$target" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
           cp -a "$generated"/. "$target"/
-          python tools/check_baseline_handoff.py copied --generated "$generated" --target "$target"
+          python tools/check_baseline_handoff.py copied --generated "$generated" --target "$target" "${profile_args[@]}"
 
           git -C "$target" config user.name "$BOT_LOGIN"
           git -C "$target" config user.email "$BOT_EMAIL"
           git -C "$target" add -A
-          python tools/check_baseline_handoff.py staged --generated "$generated" --target "$target"
+          python tools/check_baseline_handoff.py staged --generated "$generated" --target "$target" "${profile_args[@]}"
           python tools/check_staged_diff.py --root "$target"
-          python tools/check_staged_baselines.py --root "$target"
+          python tools/check_staged_baselines.py --root "$target" "${profile_args[@]}"
 
           if git -C "$target" diff --cached --quiet; then
             echo "Generated publication produced no changes." >&2

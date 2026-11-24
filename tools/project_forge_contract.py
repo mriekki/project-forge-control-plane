@@ -145,6 +145,16 @@ def _resolve_command(args: argparse.Namespace) -> int:
         "bootstrap_protocol_version": str(bootstrap["protocolVersion"]),
         "bootstrap_catalog_version": str(bootstrap["catalogVersion"]),
     }
+    # Optional profile selection uses the package version from this same
+    # descriptor read, rather than fetching a potentially different snapshot.
+    generation = descriptor["generation"]
+    stable_version = generation.get("packageVersion")
+    values["stable_package_version"] = (
+        stable_version if generation.get("package") == "@mriekki/project-forge"
+        and isinstance(stable_version, str)
+        and re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", stable_version)
+        else ""
+    )
     _write_github_output(values)
     print(json.dumps(values, sort_keys=True))
     return 0

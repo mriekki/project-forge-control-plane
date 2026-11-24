@@ -111,6 +111,24 @@ Normal approved discovery may use `generation.project-forge.integrity: "registry
 
 A missing package/version, integrity mismatch, invalid profile, managed-path conflict, unavailable required access, or failed generation is a stop condition. The workflow never silently substitutes another package, source revision, or destination.
 
+## Optional generation qualification boundary
+
+The reviewed `config/optional-generation-approvals.json` starts empty. Standard
+generation continues unchanged, including its accepted Bootstrap compatibility.
+Optional household Google invite-only and household+Feedback profiles require
+a separately reviewed exact public Bootstrap revision, stable package version,
+profile and authorized disposable target repository. An approved private
+manifest or a Builder invitation alone cannot enable optional generation.
+The private manifest must match the independent policy and owner-authored
+request. The selected profile is checked at generation, copy and Git index
+boundaries against its exact component inventory and managed bytes.
+
+The policy contains only public request identity and compatibility metadata,
+never private source locations, requirements, credentials or household details.
+No optional approval may be added until the new immutable Bootstrap revision
+and its public compatibility selection are reviewed. No provider, Passkey,
+Production or general optional-profile activation is implied by a pilot.
+
 ## Existing-repository adoption
 
 Remote adoption is a different operation from greenfield generation. The Builder/ChatGPT discovery path first pins and analyzes the exact target default-branch commit read-only, produces a human-approved Adoption-owned `PROJECT_ADOPTION.json`, and seeds only that manifest on a short-lived branch exactly one commit above the analyzed base.
