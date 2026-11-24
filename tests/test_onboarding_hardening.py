@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import invitation  # noqa: E402
 import onboarding_portal  # noqa: E402
+import onboarding_issue_state  # noqa: E402
 import public_contract  # noqa: E402
 
 
@@ -52,6 +53,7 @@ def issue(
 ) -> dict:
     return {
         "number": number,
+        "state": "open",
         "title": title,
         "body": body,
         "created_at": created_at,
@@ -86,6 +88,53 @@ class OnboardingHardeningTests(unittest.TestCase):
         )
         self.assertEqual(result["valid"], "false")
         self.assertIn("already ACTIVE", result["error"])
+
+    def test_duplicate_invite_and_claim_reuse_earlier_pending_request(self) -> None:
+        original = issue(1, "You're invited to Project Forge",
+                         body=onboarding_issue_state.render_state("invite", "Pending-Builder"))
+        duplicate = issue(2, "[invite-project-forge] pending-builder")
+        event = {"issue": duplicate}
+        with patch("invitation.invitation_expired", return_value=False):
+            result = onboarding_portal.validate_event(
+                "invite", event, self.registry, expiry_days=30, issues=[duplicate, original],
+            )
+            self.assertEqual(result["valid"], "false")
+            self.assertEqual(result["duplicate_issue"], "1")
+            event["comment"] = {"body": "/accept-project-forge", "user": {"login": "pending-builder"}}
+            result = onboarding_portal.validate_event(
+                "claim", event, self.registry, expiry_days=30, issues=[duplicate, original],
+            )
+            self.assertEqual(result["valid"], "false")
+            self.assertEqual(result["duplicate_issue"], "1")
+            original["state"] = "closed"
+            self.assertEqual(onboarding_portal.validate_event(
+                "claim", event, self.registry, expiry_days=30, issues=[duplicate, original],
+            )["valid"], "true")
+
+    def test_duplicate_detection_ignores_unrelated_or_invalid_requests(self) -> None:
+        current = issue(5, "[invite-project-forge] pending-builder")
+        invalid = [
+            issue(1, "[invite-project-forge] pending-builder", author="outsider"),
+            issue(2, "[invite-project-forge] other-builder"),
+            issue(3, "Unrelated", body="<!-- project-forge-onboarding-state:v1 invalid -->"),
+            issue(4, "[invite-project-forge] pending-builder", body="not empty"),
+            issue(6, "[invite-project-forge] pending-builder"),
+        ]
+        with patch("invitation.invitation_expired", return_value=False):
+            self.assertIsNone(onboarding_portal.earlier_pending_invitation(
+                invalid, self.registry, "pending-builder", 5, 30,
+            ))
+        older = issue(1, "[invite-project-forge] pending-builder")
+        with patch("invitation.invitation_expired", return_value=True):
+            self.assertIsNone(onboarding_portal.earlier_pending_invitation(
+                [older], self.registry, "pending-builder", 5, 30,
+            ))
+
+    def test_claim_refreshes_live_issue_before_registry_mutation(self) -> None:
+        claim = (ROOT / ".github/workflows/claim-invitation.yml").read_text(encoding="utf-8")
+        self.assertLess(claim.index("Refresh current invitation issue"), claim.index("Validate claim identity and lifetime"))
+        self.assertLess(claim.index("Revalidate invitation against current issue and registry"), claim.index("Activate developer"))
+        self.assertIn("if: steps.recheck.outcome == 'success'", claim)
 
     def test_expiration_only_returns_still_pending_invitations(self) -> None:
         issues = [

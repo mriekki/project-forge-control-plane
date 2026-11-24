@@ -232,6 +232,11 @@ def extract_invite(event: dict[str, Any], registry: dict[str, Any]) -> dict[str,
     }
 
 
+def require_open_invitation(issue: dict[str, Any]) -> None:
+    if issue.get("state") != "open":
+        raise InvitationError("Invitation is not open; ask an admin for a fresh invitation")
+
+
 def extract_claim(
     event: dict[str, Any],
     registry: dict[str, Any],
@@ -240,6 +245,7 @@ def extract_claim(
     now: datetime | None = None,
 ) -> dict[str, str]:
     issue = issue_from_event(event)
+    require_open_invitation(issue)
     require_empty_body(issue, "Invitation")
     target = parse_title(issue, INVITE_PREFIX)
     inviter = issue_author(issue)
@@ -271,6 +277,7 @@ def extract_claim(
 
 def extract_decline(event: dict[str, Any], registry: dict[str, Any]) -> dict[str, str]:
     issue = issue_from_event(event)
+    require_open_invitation(issue)
     require_empty_body(issue, "Invitation")
     target = parse_title(issue, INVITE_PREFIX)
     inviter = issue_author(issue)

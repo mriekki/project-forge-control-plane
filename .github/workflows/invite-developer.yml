@@ -18,19 +18,30 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: List pending invitation candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" | jq -s 'add // []' > "$RUNNER_TEMP/invitation-candidates.json"
+
       - name: Validate invitation
         id: invite
         run: |
           python tools/onboarding_portal.py validate \
             --kind invite \
             --event "$GITHUB_EVENT_PATH" \
-            --registry config/developers.json
+            --registry config/developers.json \
+            --policy config/invitation-policy.json \
+            --issues "$RUNNER_TEMP/invitation-candidates.json"
 
       - name: Explain invalid invitation request
         if: steps.invite.outputs.valid != 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           VALIDATION_ERROR: ${{ steps.invite.outputs.error }}
+          DUPLICATE_ISSUE: ${{ steps.invite.outputs.duplicate_issue }}
         with:
           script: |
             const error = process.env.VALIDATION_ERROR || 'Invitation request did not pass validation.';
@@ -51,6 +62,15 @@ jobs:
               issue_number: context.issue.number,
               body,
             });
+            if (process.env.DUPLICATE_ISSUE) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                state: 'closed',
+                state_reason: 'not_planned',
+              });
+            }
             core.setFailed('Invalid Project Forge invitation request; recovery instructions were posted to the issue.');
 
       - name: Verify invited GitHub user exists

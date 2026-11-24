@@ -15,6 +15,9 @@ jobs:
          contains(github.event.issue.body, '"kind":"invite"')) ||
         startsWith(github.event.issue.title, '[invite-project-forge] ')) &&
        contains(github.event.comment.body, '/decline-project-forge'))
+    concurrency:
+      group: project-forge-developer-registry
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -24,19 +27,29 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Refresh current invitation issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" > "$RUNNER_TEMP/current-invitation.json"
+          jq --slurpfile issue "$RUNNER_TEMP/current-invitation.json" '.issue = $issue[0]' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/current-invitation-event.json"
+
       - name: Normalize persisted invitation state
         id: normalized-event
         shell: bash
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/project-forge-decline-event.json"
-          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+          if grep -q 'project-forge-onboarding-state:v1' "$RUNNER_TEMP/current-invitation-event.json"; then
             python tools/onboarding_issue_state.py normalize-event \
               --kind invite \
-              --event "$GITHUB_EVENT_PATH" \
+              --event "$RUNNER_TEMP/current-invitation-event.json" \
               --output "$output"
           else
-            cp "$GITHUB_EVENT_PATH" "$output"
+            cp "$RUNNER_TEMP/current-invitation-event.json" "$output"
           fi
           echo "path=$output" >> "$GITHUB_OUTPUT"
 

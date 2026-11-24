@@ -10,6 +10,7 @@ from typing import Any
 
 import invitation
 import onboarding_doctor
+import onboarding_issue_state
 
 
 def _write_output(values: dict[str, str]) -> None:
@@ -32,24 +33,58 @@ def _failure(exc: Exception) -> dict[str, str]:
     return {"valid": "false", "error": str(exc)}
 
 
+def earlier_pending_invitation(
+    issues: list[Any], registry: dict[str, Any], target: str,
+    current_number: int, expiry_days: int,
+) -> int | None:
+    """Return the oldest valid, unexpired open request for the same inactive Builder."""
+    candidates: list[int] = []
+    for raw in issues:
+        if not isinstance(raw, dict) or raw.get("state") != "open" or raw.get("pull_request"):
+            continue
+        try:
+            number = int(invitation.issue_number(raw))
+            if number >= current_number:
+                continue
+            event = {"issue": raw}
+            if onboarding_issue_state.STATE_PREFIX in str(raw.get("body") or ""):
+                event = onboarding_issue_state.normalize_event(event, kind="invite")
+            values = invitation.extract_invite(event, registry)
+            if values["target_owner"].lower() != target.lower():
+                continue
+            if invitation.invitation_expired(event["issue"], expiry_days):
+                continue
+            candidates.append(number)
+        except (invitation.InvitationError, onboarding_issue_state.OnboardingIssueStateError, ValueError):
+            continue
+    return min(candidates) if candidates else None
+
+
 def validate_event(
     kind: str,
     event: dict[str, Any],
     registry: dict[str, Any],
     *,
     expiry_days: int,
+    issues: list[Any] | None = None,
 ) -> dict[str, str]:
     try:
-        if kind == "invite":
-            return _success(invitation.extract_invite(event, registry))
-        if kind == "claim":
-            return _success(
-                invitation.extract_claim(
-                    event,
-                    registry,
-                    expiry_days=expiry_days,
-                )
+        if kind in {"invite", "claim"}:
+            values = (
+                invitation.extract_invite(event, registry) if kind == "invite"
+                else invitation.extract_claim(event, registry, expiry_days=expiry_days)
             )
+            if issues is not None:
+                duplicate = earlier_pending_invitation(
+                    issues, registry, values["target_owner"], int(values["issue_number"]), expiry_days,
+                )
+                if duplicate is not None:
+                    result = _failure(invitation.InvitationError(
+                        f"An earlier pending invitation already exists: #{duplicate}. Use that invitation, or reconcile it before issuing a new one."
+                    ))
+                    result["duplicate_issue"] = str(duplicate)
+                    return result
+            return _success(values)
         if kind == "decline":
             values = invitation.extract_decline(event, registry)
             existing = invitation.developer(registry, values["target_owner"])
@@ -99,11 +134,15 @@ def _validate_command(args: argparse.Namespace) -> int:
     expiry_days = (
         invitation.load_policy(args.policy)["expiryDays"] if args.policy else 30
     )
+    issues = invitation.read_json(args.issues) if args.issues else None
+    if args.issues and not isinstance(issues, list):
+        raise invitation.InvitationError("Issue listing must be a JSON array")
     values = validate_event(
         args.kind,
         event,
         registry,
         expiry_days=expiry_days,
+        issues=issues,
     )
     _write_output(values)
     print(json.dumps(values, sort_keys=True))
@@ -136,6 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--event", required=True, type=Path)
     validate.add_argument("--registry", required=True, type=Path)
     validate.add_argument("--policy", type=Path)
+    validate.add_argument("--issues", type=Path)
     validate.set_defaults(func=_validate_command)
 
     expired = commands.add_parser("list-expired-pending")
