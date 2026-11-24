@@ -55,6 +55,14 @@ Follow the public one-time setup guide:
 
 https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md
 
+If you prefer guided copy-and-paste setup, open a new ChatGPT conversation and use this prompt:
+
+```text
+Help me set up Project Forge as a Builder. Read the current public descriptor at https://raw.githubusercontent.com/mriekki/project-forge-platform/main/chatgpt/current.json, verify its complete pinned immutable contract snapshot, and use the canonical ChatGPT setup guide. Ask for my GitHub username and any useful personal environment preferences that are missing. Give me the exact canonical Project instructions and a minimal valid Developer Profile to copy into my ChatGPT Project. Do not guess missing details, rewrite the canonical instructions, or add secrets or Project state. Explain how to connect my own GitHub account and verify the intended repository access. Do not generate a Project yet.
+```
+
+If verification cannot be completed, stop rather than copying remembered instructions. Use the guide above as the authoritative manual fallback. After copying the instructions into your ChatGPT Project, start a chat there and say `Verify my Project Forge setup.`
+
 Every Builder uses the same canonical Project Forge Project instruction. Personal GitHub/workstation/learning preferences belong only in that Builder's small Developer Profile.
 
 Do **not** copy product requirements, component SHAs, current Project state, or legacy handoff contents into Project instructions.

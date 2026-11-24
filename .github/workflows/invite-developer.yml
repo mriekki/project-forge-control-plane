@@ -219,6 +219,7 @@ jobs:
               '',
               '**Privacy:** this invitation issue is public. Do not paste source code, Project requirements, credentials, tokens, or other private information here.',
               '',
+              'Builder setup guide: https://github.com/mriekki/project-forge-control-plane/blob/main/docs/SETUP.md',
               `More about Project Forge: ${welcomeUrl}`,
             ].join('\n');
             await github.rest.issues.createComment({
