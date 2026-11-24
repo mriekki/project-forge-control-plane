@@ -25,6 +25,8 @@ Project Forge workflows still mint short-lived tokens scoped to the exact reposi
 
 If the App is already installed, do not remove or reinstall it just to continue.
 
+If you have no repository to select yet, create a private starter repository under your own GitHub username (leave it empty if it will be your first generated Project). Then select it in the App installation. In GitHub, **Settings → Applications → Installed GitHub Apps → Project Forge Builder → Configure** is where you can add future repositories. Keep the App installed on your own account; you do not need access to private platform repositories.
+
 ### 3. Accept the invitation
 
 While signed in as the GitHub user named in the invitation, add a new comment containing exactly:
@@ -47,9 +49,19 @@ When the issue reports **Project Forge is ready**, GitHub onboarding is complete
 
 ## Configure ChatGPT once
 
+The Project Forge Builder GitHub App authorizes Control Plane automation. It is separate from ChatGPT's GitHub connection, which lets ChatGPT inspect and, where supported, work with repositories as you. Connect your own GitHub account in ChatGPT and verify access to the intended Project repository. If the available connection cannot perform the required writes, use the supported manual/VS Code handoff; do not share a token or another Builder's credentials.
+
 Follow the public one-time setup guide:
 
 https://github.com/mriekki/project-forge-platform/blob/main/chatgpt/SETUP.md
+
+If you prefer guided copy-and-paste setup, open a new ChatGPT conversation and use this prompt:
+
+```text
+Help me set up Project Forge as a Builder. Read the current public descriptor at https://raw.githubusercontent.com/mriekki/project-forge-platform/main/chatgpt/current.json, verify its complete pinned immutable contract snapshot, and use the canonical ChatGPT setup guide. Ask for my GitHub username and any useful personal environment preferences that are missing. Give me the exact canonical Project instructions and a minimal valid Developer Profile to copy into my ChatGPT Project. Do not guess missing details, rewrite the canonical instructions, or add secrets or Project state. Explain how to connect my own GitHub account and verify the intended repository access. Do not generate a Project yet.
+```
+
+If verification cannot be completed, stop rather than copying remembered instructions. Use the guide above as the authoritative manual fallback. After copying the instructions into your ChatGPT Project, start a chat there and say `Verify my Project Forge setup.`
 
 Every Builder uses the same canonical Project Forge Project instruction. Personal GitHub/workstation/learning preferences belong only in that Builder's small Developer Profile.
 
@@ -60,6 +72,10 @@ Then start with:
 ```text
 New Project
 ```
+
+## Your first Project
+
+For a newly generated Project, use a private empty repository under your own GitHub username. Do not use a repository name starting with `project-forge-` (reserved). Do not initialize the target with a README, license or gitignore. Grant Project Forge Builder access to that repository and verify the ChatGPT connection can reach it. The guided discovery confirms the exact target before generation. After generation and baseline CI, clone the repository, open its generated VS Code workspace, and run `/setup`. Choose local development first if you do not yet have a deployment target. No access to someone else's server or household is required.
 
 ## Recovery
 
@@ -73,7 +89,7 @@ Use the direct **Project Forge Builder** link posted on the invitation issue, ap
 
 ### Invitation expired
 
-Ask the Project Forge admin for a fresh invitation. Expiration applies only while an invitation is still pending.
+Ask the Project Forge admin for a fresh invitation. Expiration applies only while an invitation is still pending. A closed or declined invitation must not be reused or reopened to renew it. If you have more than one open invitation, use the earlier valid invitation or ask the admin to reconcile them.
 
 ### Builder is already ACTIVE but readiness needs checking
 

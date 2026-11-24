@@ -52,6 +52,7 @@ def issue_event(
     return {
         "issue": {
             "number": number,
+            "state": "open",
             "title": title,
             "body": body,
             "created_at": created_at,
@@ -115,6 +116,17 @@ class InvitationTests(unittest.TestCase):
         event["comment"]["user"]["login"] = "daniel-example"
         values = invitation.extract_claim(event, self.registry(), expiry_days=30, now=NOW)
         self.assertEqual(values["claimant"], "daniel-example")
+
+    def test_closed_or_unknown_state_cannot_be_claimed_or_declined(self) -> None:
+        for state in ("closed", None):
+            event = issue_event("[invite-project-forge] daniel-example")
+            event["issue"]["state"] = state
+            event["comment"] = {"body": "/accept-project-forge", "user": {"login": "daniel-example"}}
+            with self.assertRaisesRegex(invitation.InvitationError, "not open"):
+                invitation.extract_claim(event, self.registry(), expiry_days=30, now=NOW)
+            event["comment"]["body"] = "/decline-project-forge"
+            with self.assertRaisesRegex(invitation.InvitationError, "not open"):
+                invitation.extract_decline(event, self.registry())
 
     def test_expired_invitation_cannot_be_claimed(self) -> None:
         event = issue_event(

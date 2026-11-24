@@ -34,7 +34,8 @@ Before publishing the invitation instructions, the Control Plane verifies:
 - the target uses valid GitHub-login syntax;
 - the target exists on GitHub;
 - the target is a GitHub **user**, not an organization;
-- the target is not already ACTIVE.
+- the target is not already ACTIVE;
+- there is no earlier valid, unexpired pending invitation for that identity (the later duplicate is closed with recovery guidance).
 
 After those checks pass, the workflow persists a small hidden machine-readable onboarding marker in the issue body and changes the visible title to:
 
@@ -57,7 +58,7 @@ The issue itself is the onboarding portal. A forwarded issue URL does not grant 
 
 A claim is valid only when all of these are true:
 
-- the invitation is still pending;
+- the invitation is still pending and open, with no earlier valid pending invitation for that identity;
 - the persisted onboarding state resolves a valid invited GitHub user;
 - the original inviter remains authorized;
 - the claim is within `config/invitation-policy.json`;
@@ -66,6 +67,8 @@ A claim is valid only when all of these are true:
 - Project Forge can verify the GitHub App installation for that user.
 
 Only then may the Control Plane persist the developer as ACTIVE.
+
+The claim workflow refreshes the current issue before validation and again before activation; a closed or changed invitation is rejected. Decline and expiration use the same workflow concurrency boundary as registry persistence. Administrators should not reopen a terminal invitation to renew it; issue a new one after reconciliation. Do not close or modify an invitation while an acceptance is running.
 
 Registry writes are serialized by the `project-forge-developer-registry` concurrency group. They use normal Git fast-forward/rebase mechanics only; no force-push or history rewrite is allowed. A concurrent/conflicting `main` update fails safely and posts recovery guidance on the invitation issue.
 
@@ -120,7 +123,7 @@ The invited GitHub user may decline by commenting exactly:
 
 Expiration uses the configured claim window and scans all open Control Plane issues rather than an arbitrary first-page limit.
 
-Neither decline nor expiration changes developer authorization because both are permitted only before activation.
+Neither decline nor expiration changes developer authorization because both are permitted only before activation. To replace a still-pending invitation, first reconcile and close it, then create a new request. Closing is not revocation of an already-active Builder.
 
 ## Recovery behavior
 

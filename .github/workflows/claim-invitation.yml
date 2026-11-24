@@ -31,21 +31,39 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Refresh current invitation issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" > "$RUNNER_TEMP/current-invitation.json"
+          jq --slurpfile issue "$RUNNER_TEMP/current-invitation.json" '.issue = $issue[0]' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/current-invitation-event.json"
+
       - name: Normalize persisted invitation state
         id: normalized-event
         shell: bash
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/project-forge-invitation-event.json"
-          if grep -q 'project-forge-onboarding-state:v1' "$GITHUB_EVENT_PATH"; then
+          if grep -q 'project-forge-onboarding-state:v1' "$RUNNER_TEMP/current-invitation-event.json"; then
             python tools/onboarding_issue_state.py normalize-event \
               --kind invite \
-              --event "$GITHUB_EVENT_PATH" \
+              --event "$RUNNER_TEMP/current-invitation-event.json" \
               --output "$output"
           else
-            cp "$GITHUB_EVENT_PATH" "$output"
+            cp "$RUNNER_TEMP/current-invitation-event.json" "$output"
           fi
           echo "path=$output" >> "$GITHUB_OUTPUT"
+
+      - name: List pending invitation candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" | jq -s 'add // []' > "$RUNNER_TEMP/invitation-candidates.json"
 
       - name: Validate claim identity and lifetime
         id: claim
@@ -54,7 +72,8 @@ jobs:
             --kind claim \
             --event "${{ steps.normalized-event.outputs.path }}" \
             --registry config/developers.json \
-            --policy config/invitation-policy.json
+            --policy config/invitation-policy.json \
+            --issues "$RUNNER_TEMP/invitation-candidates.json"
 
       - name: Explain invalid invitation claim
         if: steps.claim.outputs.valid != 'true'
@@ -154,8 +173,44 @@ jobs:
           ref: main
           token: ${{ steps.registry-token.outputs.token }}
 
-      - name: Activate developer
+      - name: Revalidate invitation against current issue and registry
         if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
+        id: recheck
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EXPECTED_OWNER: ${{ steps.claim.outputs.target_owner }}
+          EXPECTED_INVITER: ${{ steps.claim.outputs.request_author }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" > "$RUNNER_TEMP/recheck-issue.json"
+          jq --slurpfile issue "$RUNNER_TEMP/recheck-issue.json" '.issue = $issue[0]' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/recheck-event.json"
+          if grep -q 'project-forge-onboarding-state:v1' "$RUNNER_TEMP/recheck-event.json"; then
+            python tools/onboarding_issue_state.py normalize-event --kind invite --event "$RUNNER_TEMP/recheck-event.json" --output "$RUNNER_TEMP/recheck-normalized.json"
+          else
+            cp "$RUNNER_TEMP/recheck-event.json" "$RUNNER_TEMP/recheck-normalized.json"
+          fi
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" | jq -s 'add // []' > "$RUNNER_TEMP/recheck-candidates.json"
+          python tools/onboarding_portal.py validate --kind claim --event "$RUNNER_TEMP/recheck-normalized.json" --registry config/developers.json --policy config/invitation-policy.json --issues "$RUNNER_TEMP/recheck-candidates.json" > "$RUNNER_TEMP/recheck-result.json"
+          jq -e --arg owner "$EXPECTED_OWNER" --arg inviter "$EXPECTED_INVITER" '.valid == "true" and .target_owner == $owner and .request_author == $inviter' "$RUNNER_TEMP/recheck-result.json" > /dev/null
+
+      - name: Explain changed invitation
+        if: steps.recheck.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: 'Project Forge could not revalidate this invitation against the current issue and registry. No activation was persisted. Ask the administrator to reconcile the invitation, then retry on the valid open invitation.',
+            });
+            core.setFailed('Invitation revalidation failed.');
+
+      - name: Activate developer
+        if: steps.recheck.outcome == 'success'
         run: |
           python tools/invitation.py activate \
             --registry config/developers.json \
@@ -170,7 +225,7 @@ jobs:
 
       - name: Commit operational registry update safely
         id: persist
-        if: steps.claim.outputs.valid == 'true' && steps.app-token.outcome == 'success'
+        if: steps.recheck.outcome == 'success'
         continue-on-error: true
         env:
           TARGET_OWNER: ${{ steps.claim.outputs.target_owner }}
@@ -251,7 +306,10 @@ jobs:
               '✓ Project Forge Builder GitHub App installation: READY',
               '✓ Public platform contract: VERIFIED',
               '',
-              '**Next:** set up your Project Forge ChatGPT coding Project once:',
+              '**Next:** follow the Builder setup guide to connect your own GitHub account, configure ChatGPT, and prepare your first Project:',
+              'https://github.com/mriekki/project-forge-control-plane/blob/main/docs/SETUP.md',
+              '',
+              'Canonical ChatGPT setup instructions:',
               setup,
               '',
               'After that, start with:',

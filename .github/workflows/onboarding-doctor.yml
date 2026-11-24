@@ -133,6 +133,7 @@ jobs:
                 : 'NOT READY — resolve the failed check(s), then add a new comment containing exactly `/project-forge-doctor` to retry.',
               ...(!app ? ['', `Project Forge Builder: ${appUrl}`] : []),
               '',
+              'Builder setup guide: https://github.com/mriekki/project-forge-control-plane/blob/main/docs/SETUP.md',
               `ChatGPT setup: ${setup}`,
             ].join('\n');
             await github.rest.issues.createComment({

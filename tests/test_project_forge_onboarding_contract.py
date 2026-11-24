@@ -38,6 +38,16 @@ class ProjectForgeOnboardingContractTests(unittest.TestCase):
         self.assertNotIn("APP_CLIENT_ID", text)
         self.assertNotIn("APP_PRIVATE_KEY", text)
 
+    def test_builder_guidance_is_reachable_from_invite_and_readiness(self):
+        guide = "https://github.com/mriekki/project-forge-control-plane/blob/main/docs/SETUP.md"
+        for workflow in ("invite-developer.yml", "claim-invitation.yml", "onboarding-doctor.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            self.assertIn(guide, text)
+        setup = (ROOT / "docs" / "SETUP.md").read_text(encoding="utf-8")
+        self.assertIn("Verify my Project Forge setup.", setup)
+        self.assertIn("current.json", setup)
+        self.assertIn("separate from ChatGPT's GitHub connection", setup)
+
     def test_admin_setup_owns_control_plane_configuration(self):
         text = (ROOT / "docs" / "ADMIN_SETUP.md").read_text(encoding="utf-8")
         self.assertIn("Administrator Setup", text)
