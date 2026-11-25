@@ -137,6 +137,18 @@ def _write_github_output(values: dict[str, str]) -> None:
             handle.write(f"{key}={value}\n")
 
 
+def resolve_optional_profiles(generation: dict[str, Any]) -> list[str]:
+    # Missing advertisement is the rollback/default-off state. Only the exact
+    # stable descriptor read supplying the source and version may advertise.
+    profiles = generation.get("optionalProfiles", [])
+    allowed = {"greenfield-household-project", "greenfield-household-feedback-project"}
+    if (not isinstance(profiles, list)
+            or not all(isinstance(p, str) and p in allowed for p in profiles)
+            or len(set(profiles)) != len(profiles)):
+        raise ProjectForgeContractError("Invalid public optional generation profiles")
+    return profiles
+
+
 def _resolve_command(args: argparse.Namespace) -> int:
     descriptor = _load_json_source(args.descriptor)
     bootstrap = resolve_bootstrap_generation(descriptor)
@@ -155,6 +167,7 @@ def _resolve_command(args: argparse.Namespace) -> int:
         and re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", stable_version)
         else ""
     )
+    values["advertised_optional_profiles"] = json.dumps(resolve_optional_profiles(generation), separators=(",", ":"))
     _write_github_output(values)
     print(json.dumps(values, sort_keys=True))
     return 0

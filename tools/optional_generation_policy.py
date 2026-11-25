@@ -1,8 +1,9 @@
 """Select a reviewed optional generation profile, never authorize a target write.
 
-The normal standard profile remains unchanged. Optional support is empty by
-default and requires a reviewed exact target/revision/version/profile approval.
-No private project definitions or secrets belong in this public policy.
+Standard generation remains unchanged. Optional generation requires a reviewed
+exact Bootstrap/package/profile tuple AND advertisement in the same stable
+public descriptor. Target ownership and approved manifests are still mandatory.
+Legacy schema-1 pilot policy is retained only for rollback compatibility.
 """
 from __future__ import annotations
 
@@ -44,7 +45,35 @@ def exact(value, regex):
     return isinstance(value, str) and regex.fullmatch(value) is not None
 
 
-def select(policy, manifest, *, revision, stable_version, repository, author):
+def select(policy, manifest, *, revision, stable_version, repository, author,
+           advertised_profiles=()):
+    need(isinstance(policy, dict), "Invalid optional generation policy")
+    if type(policy.get("schemaVersion")) is int and policy["schemaVersion"] == 2:
+        need(set(policy) == {"schemaVersion", "qualifiedProfiles"}
+             and isinstance(policy["qualifiedProfiles"], list), "Invalid qualified profile policy")
+        qualified = set()
+        for item in policy["qualifiedProfiles"]:
+            need(isinstance(item, dict) and set(item) == {"bootstrapRevision", "packageVersion", "profile"}
+                 and exact(item["bootstrapRevision"], SHA) and exact(item["packageVersion"], VERSION)
+                 and isinstance(item["profile"], str) and item["profile"] in OPTIONAL,
+                 "Invalid qualified profile")
+            key = (item["bootstrapRevision"], item["packageVersion"], item["profile"])
+            need(key not in qualified, "Duplicate qualified profile")
+            qualified.add(key)
+        need(isinstance(advertised_profiles, (list, tuple))
+             and all(isinstance(p, str) and p in OPTIONAL for p in advertised_profiles)
+             and len(set(advertised_profiles)) == len(advertised_profiles),
+             "Invalid public optional profile advertisement")
+        approvals = {}
+    else:
+        qualified = None
+        approvals = _pilot_approvals(policy)
+    return _select(policy, manifest, revision=revision, stable_version=stable_version,
+                   repository=repository, author=author, qualified=qualified,
+                   approvals=approvals, advertised_profiles=advertised_profiles)
+
+
+def _pilot_approvals(policy):
     need(isinstance(policy, dict) and set(policy) == {"schemaVersion", "approvals"}
          and type(policy["schemaVersion"]) is int and policy["schemaVersion"] == 1
          and isinstance(policy["approvals"], list), "Invalid optional generation policy")
@@ -60,6 +89,11 @@ def select(policy, manifest, *, revision, stable_version, repository, author):
         need(key not in approvals, "Duplicate target approval")
         approvals[key] = item
 
+    return approvals
+
+
+def _select(policy, manifest, *, revision, stable_version, repository, author,
+            qualified, approvals, advertised_profiles):
     need(isinstance(manifest, dict), "Invalid approved generation manifest")
     generation = manifest.get("generation")
     need(isinstance(generation, dict), "Missing generation selection")
@@ -85,10 +119,15 @@ def select(policy, manifest, *, revision, stable_version, repository, author):
          and selected.get("package") == "@mriekki/project-forge"
          and selected.get("version") == stable_version,
          "Optional request does not match exact approved target and stable contract")
-    approval = approvals.get(repository.lower())
-    need(approval is not None and approval["bootstrapRevision"] == revision
-         and approval["packageVersion"] == stable_version and approval["profile"] == profile,
-         "Optional generation has no matching independently reviewed approval")
+    if qualified is not None:
+        need((revision, stable_version, profile) in qualified
+             and profile in advertised_profiles,
+             "Optional profile is not qualified and advertised for this exact stable release")
+    else:
+        approval = approvals.get(repository.lower())
+        need(approval is not None and approval["bootstrapRevision"] == revision
+             and approval["packageVersion"] == stable_version and approval["profile"] == profile,
+             "Optional generation has no matching independently reviewed approval")
     return {"profile": profile, "package_version": stable_version}
 
 
@@ -97,11 +136,13 @@ def main():
     for name in ("policy", "manifest", "bootstrap-revision", "stable-package-version",
                  "target-repository", "request-author"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--advertised-profiles", default="[]")
     args = parser.parse_args()
     try:
         values = select(load(args.policy), load(args.manifest),
                         revision=args.bootstrap_revision, stable_version=args.stable_package_version,
-                        repository=args.target_repository, author=args.request_author)
+                        repository=args.target_repository, author=args.request_author,
+                        advertised_profiles=json.loads(args.advertised_profiles))
         if os.getenv("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                 for key, value in values.items():
