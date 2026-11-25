@@ -29,26 +29,7 @@ class OptionalGenerationPolicyTests(unittest.TestCase):
 
     def test_default_policy_does_not_activate_optional_profiles(self):
         policy = load(ROOT / "config/optional-generation-approvals.json")
-        self.assertEqual(policy, {"schemaVersion": 1, "approvals": [
-            {"targetRepository": "mriekki/auth-feedback-demo",
-             "bootstrapRevision": "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a",
-             "packageVersion": "4.36.3", "profile": FEEDBACK}
-        ]})
-        # The empty policy remains default-off; the live policy only grants
-        # the independently approved disposable target.
-        for profile in (AUTH, FEEDBACK):
-            _, manifest, inputs = self.fixture(profile)
-            with self.assertRaises(PolicyError):
-                select({"schemaVersion": 1, "approvals": []}, manifest, **inputs)
-        _, manifest, inputs = self.fixture(FEEDBACK)
-        manifest["project"]["repository"] = "mriekki/auth-feedback-demo"
-        manifest["bootstrap"]["commit"] = "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a"
-        inputs.update(repository="mriekki/auth-feedback-demo", author="mriekki", revision="ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a")
-        self.assertEqual(select(policy, manifest, **inputs),
-                         {"profile": FEEDBACK, "package_version": "4.36.3"})
-        manifest["generation"]["project-forge"]["profile"] = AUTH
-        with self.assertRaises(PolicyError):
-            select(policy, manifest, **inputs)
+        self.assertEqual(policy, {"schemaVersion": 1, "approvals": []})
         for profile in (AUTH, FEEDBACK):
             _, manifest, inputs = self.fixture(profile)
             with self.assertRaises(PolicyError):
