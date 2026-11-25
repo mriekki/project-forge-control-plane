@@ -111,23 +111,24 @@ Normal approved discovery may use `generation.project-forge.integrity: "registry
 
 A missing package/version, integrity mismatch, invalid profile, managed-path conflict, unavailable required access, or failed generation is a stop condition. The workflow never silently substitutes another package, source revision, or destination.
 
-## Optional generation qualification boundary
+## Optional generation availability
 
-The reviewed `config/optional-generation-approvals.json` starts empty. Standard
-generation continues unchanged, including its accepted Bootstrap compatibility.
-Optional household Google invite-only and household+Feedback profiles require
-a separately reviewed exact public Bootstrap revision, stable package version,
-profile and authorized disposable target repository. An approved private
-manifest or a Builder invitation alone cannot enable optional generation.
-The private manifest must match the independent policy and owner-authored
-request. The selected profile is checked at generation, copy and Git index
-boundaries against its exact component inventory and managed bytes.
+Standard generation retains its existing compatibility path. The reviewed
+`config/optional-generation-approvals.json` schema 2 records qualified exact
+Bootstrap revision, stable package version and optional profile tuples. For an
+optional request the same public descriptor read must advertise that profile
+in `generation.optionalProfiles`. Missing advertisement or an unqualified
+new revision/version fails closed; ordinary generation needs no new per-Project
+platform PR. An authorized Builder's owner-authored request and private approved
+manifest still must match the exact private target and pass canonical Bootstrap
+validation, scoped App access and generated/copy/index baseline checks.
 
-The policy contains only public request identity and compatibility metadata,
-never private source locations, requirements, credentials or household details.
-No optional approval may be added until the new immutable Bootstrap revision
-and its public compatibility selection are reviewed. No provider, Passkey,
-Production or general optional-profile activation is implied by a pilot.
+Only household Google invite-only and household+same-Project GitHub Feedback
+generation are qualified. Generation is not provider provisioning, household
+membership, app-admin authority, passkeys, Release Notes or Production approval.
+Remove the descriptor advertisement or reviewed qualification to stop future
+optional generation without changing existing Projects. Legacy schema 1 remains
+supported for rollback to the previous exact-target pilot policy.
 
 ## Existing-repository adoption
 

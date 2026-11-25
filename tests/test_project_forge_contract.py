@@ -52,6 +52,17 @@ class ProjectForgeContractTests(unittest.TestCase):
         with mock.patch.dict(os.environ, self.PRIVATE_ENV, clear=False):
             return project_forge_contract.resolve_bootstrap_generation(descriptor)
 
+    def test_optional_profile_advertisement_is_explicit_and_closed(self) -> None:
+        generation = self.descriptor()["generation"]
+        self.assertEqual(project_forge_contract.resolve_optional_profiles(generation), [])
+        profiles = ["greenfield-household-project", "greenfield-household-feedback-project"]
+        self.assertEqual(project_forge_contract.resolve_optional_profiles(
+            {**generation, "optionalProfiles": profiles}), profiles)
+        for invalid in (None, "greenfield-household-project", [profiles[0]] * 2,
+                        ["greenfield-project"], ["greenfield-release-notes-project"], [{}]):
+            with self.subTest(invalid=invalid), self.assertRaises(project_forge_contract.ProjectForgeContractError):
+                project_forge_contract.resolve_optional_profiles({**generation, "optionalProfiles": invalid})
+
     def test_resolves_privacy_safe_public_generation_pin(self) -> None:
         self.assertEqual(
             self.resolve(self.descriptor()),

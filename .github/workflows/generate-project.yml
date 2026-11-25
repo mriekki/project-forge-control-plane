@@ -178,6 +178,7 @@ jobs:
         env:
           BOOTSTRAP_REVISION: ${{ steps.bootstrap.outputs.sha }}
           STABLE_PACKAGE_VERSION: ${{ steps.public-contract.outputs.stable_package_version }}
+          ADVERTISED_OPTIONAL_PROFILES: ${{ steps.public-contract.outputs.advertised_optional_profiles }}
           TARGET_REPOSITORY: ${{ steps.request.outputs.target_repository }}
           REQUEST_AUTHOR: ${{ steps.request.outputs.request_author }}
         run: |
@@ -187,6 +188,7 @@ jobs:
             --manifest target/PROJECT_BOOTSTRAP.json \
             --bootstrap-revision "$BOOTSTRAP_REVISION" \
             --stable-package-version "$STABLE_PACKAGE_VERSION" \
+            --advertised-profiles "$ADVERTISED_OPTIONAL_PROFILES" \
             --target-repository "$TARGET_REPOSITORY" \
             --request-author "$REQUEST_AUTHOR"
 
