@@ -31,7 +31,8 @@ class OptionalGenerationPolicyTests(unittest.TestCase):
         policy = load(ROOT / "config/optional-generation-approvals.json")
         self.assertEqual(policy, {"schemaVersion": 2, "qualifiedProfiles": [
             {"bootstrapRevision": "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a",
-             "packageVersion": "4.36.3", "profile": profile}
+             "packageVersion": version, "profile": profile}
+            for version in ("4.36.3", "4.36.4")
             for profile in (AUTH, FEEDBACK)
         ]})
         for profile in (AUTH, FEEDBACK):
@@ -44,40 +45,51 @@ class OptionalGenerationPolicyTests(unittest.TestCase):
 
     def test_general_availability_requires_both_exact_qualification_and_advertisement(self):
         policy = load(ROOT / "config/optional-generation-approvals.json")
-        for owner in ("builder-one", "builder-two"):
-            for profile in (AUTH, FEEDBACK):
-                _, manifest, inputs = self.fixture(profile)
-                repository = owner + "/disposable-project"
-                manifest["project"]["repository"] = repository
-                manifest["bootstrap"]["commit"] = "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a"
-                inputs.update(repository=repository, author=owner, revision="ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a")
-                with self.subTest(owner=owner, profile=profile):
-                    with self.assertRaises(PolicyError):
-                        select(policy, manifest, **inputs)
-                    self.assertEqual(select(policy, manifest, **inputs,
-                                            advertised_profiles=[AUTH, FEEDBACK]),
-                                     {"profile": profile, "package_version": "4.36.3"})
-                    for changes in ({"author": "another-builder"}, {"repository": owner + "/other"},
-                                    {"revision": "b" * 40}, {"stable_version": "4.36.4"}):
+        for version in ("4.36.3", "4.36.4"):
+            for owner in ("builder-one", "builder-two"):
+                for profile in (AUTH, FEEDBACK):
+                    _, manifest, inputs = self.fixture(profile)
+                    repository = owner + "/disposable-project"
+                    manifest["project"]["repository"] = repository
+                    manifest["bootstrap"]["commit"] = "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a"
+                    manifest["generation"]["project-forge"]["version"] = version
+                    inputs.update(repository=repository, author=owner,
+                                  revision="ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a",
+                                  stable_version=version)
+                    with self.subTest(version=version, owner=owner, profile=profile):
                         with self.assertRaises(PolicyError):
-                            select(policy, manifest, **{**inputs, **changes},
-                                   advertised_profiles=[AUTH, FEEDBACK])
-                    with self.assertRaises(PolicyError):
-                        select(policy, manifest, **inputs, advertised_profiles=[])
-                    with self.assertRaises(PolicyError):
-                        select(policy, manifest, **inputs, advertised_profiles=[profile, profile])
-                    with self.assertRaises(PolicyError):
-                        select(policy, manifest, **inputs, advertised_profiles=[profile, "greenfield-release-notes-project"])
-                    with self.assertRaises(PolicyError):
-                        select({"schemaVersion": 2, "qualifiedProfiles": []}, manifest, **inputs,
-                               advertised_profiles=[profile])
-                    # Even a consistent future manifest/descriptor cannot borrow old qualification.
-                    future = copy.deepcopy(manifest)
-                    future["bootstrap"]["commit"] = "b" * 40
-                    future["generation"]["project-forge"]["version"] = "4.36.4"
-                    with self.assertRaises(PolicyError):
-                        select(policy, future, **{**inputs, "revision": "b" * 40, "stable_version": "4.36.4"},
-                               advertised_profiles=[profile])
+                            select(policy, manifest, **inputs)
+                        self.assertEqual(select(policy, manifest, **inputs,
+                                                advertised_profiles=[AUTH, FEEDBACK]),
+                                         {"profile": profile, "package_version": version})
+                        for changes in ({"author": "another-builder"}, {"repository": owner + "/other"},
+                                        {"revision": "b" * 40}, {"stable_version": "4.36.5"}):
+                            with self.assertRaises(PolicyError):
+                                select(policy, manifest, **{**inputs, **changes},
+                                       advertised_profiles=[AUTH, FEEDBACK])
+                        with self.assertRaises(PolicyError):
+                            select(policy, manifest, **inputs, advertised_profiles=[])
+                        other_profile = FEEDBACK if profile == AUTH else AUTH
+                        with self.assertRaises(PolicyError):
+                            select(policy, manifest, **inputs, advertised_profiles=[other_profile])
+                        with self.assertRaises(PolicyError):
+                            select(policy, manifest, **inputs, advertised_profiles=[profile, profile])
+                        with self.assertRaises(PolicyError):
+                            select(policy, manifest, **inputs, advertised_profiles=[profile, "greenfield-release-notes-project"])
+                        with self.assertRaises(PolicyError):
+                            select({"schemaVersion": 2, "qualifiedProfiles": []}, manifest, **inputs,
+                                   advertised_profiles=[profile])
+                        # Even a consistent future manifest/descriptor cannot borrow old qualification.
+                        future = copy.deepcopy(manifest)
+                        future["generation"]["project-forge"]["version"] = "4.36.5"
+                        with self.assertRaises(PolicyError):
+                            select(policy, future, **{**inputs, "stable_version": "4.36.5"},
+                                   advertised_profiles=[profile])
+                        future = copy.deepcopy(manifest)
+                        future["bootstrap"]["commit"] = "b" * 40
+                        with self.assertRaises(PolicyError):
+                            select(policy, future, **{**inputs, "revision": "b" * 40},
+                                   advertised_profiles=[profile])
 
     def test_invalid_general_policy_rejected(self):
         policy = load(ROOT / "config/optional-generation-approvals.json")
