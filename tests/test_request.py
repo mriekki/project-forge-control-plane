@@ -74,6 +74,15 @@ class RequestTests(unittest.TestCase):
         with self.assertRaises(request.RequestError):
             request.parse_sync_request(sync_event, {"mriekki"})
 
+    def test_ordinary_consumer_names_remain_eligible_for_generation(self) -> None:
+        for owner in ("builder-one", "builder-two"):
+            repository = f"{owner}/meal-planner"
+            event = self.event(author=owner, title=f"[generate-project] {repository}")
+            self.assertEqual(
+                request.parse_request(event, {owner})["target_repository"],
+                repository,
+            )
+
     def test_project_forge_repository_namespace_is_reserved(self) -> None:
         for repository in ("project-forge-system", "Project-Forge-Internal"):
             for prefix, parser in (
