@@ -20,6 +20,16 @@
       "bootstrapRevision": "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a",
       "packageVersion": "4.36.4",
       "profile": "greenfield-household-feedback-project"
+    },
+    {
+      "bootstrapRevision": "40999197ec4e9cbf5b550d4045014bb4aea9cd85",
+      "packageVersion": "4.36.4",
+      "profile": "greenfield-household-project"
+    },
+    {
+      "bootstrapRevision": "40999197ec4e9cbf5b550d4045014bb4aea9cd85",
+      "packageVersion": "4.36.4",
+      "profile": "greenfield-household-feedback-project"
     }
   ]
 }
