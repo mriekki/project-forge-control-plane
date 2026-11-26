@@ -10,6 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 STANDARD = "greenfield-project"
 AUTH = "greenfield-household-project"
 FEEDBACK = "greenfield-household-feedback-project"
+QUALIFIED_RELEASES = (
+    ("ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a", "4.36.3"),
+    ("ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a", "4.36.4"),
+    ("40999197ec4e9cbf5b550d4045014bb4aea9cd85", "4.36.4"),
+)
 
 
 class OptionalGenerationPolicyTests(unittest.TestCase):
@@ -30,9 +35,9 @@ class OptionalGenerationPolicyTests(unittest.TestCase):
     def test_default_policy_does_not_activate_optional_profiles(self):
         policy = load(ROOT / "config/optional-generation-approvals.json")
         self.assertEqual(policy, {"schemaVersion": 2, "qualifiedProfiles": [
-            {"bootstrapRevision": "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a",
+            {"bootstrapRevision": revision,
              "packageVersion": version, "profile": profile}
-            for version in ("4.36.3", "4.36.4")
+            for revision, version in QUALIFIED_RELEASES
             for profile in (AUTH, FEEDBACK)
         ]})
         for profile in (AUTH, FEEDBACK):
@@ -45,18 +50,18 @@ class OptionalGenerationPolicyTests(unittest.TestCase):
 
     def test_general_availability_requires_both_exact_qualification_and_advertisement(self):
         policy = load(ROOT / "config/optional-generation-approvals.json")
-        for version in ("4.36.3", "4.36.4"):
+        for revision, version in QUALIFIED_RELEASES:
             for owner in ("builder-one", "builder-two"):
                 for profile in (AUTH, FEEDBACK):
                     _, manifest, inputs = self.fixture(profile)
                     repository = owner + "/disposable-project"
                     manifest["project"]["repository"] = repository
-                    manifest["bootstrap"]["commit"] = "ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a"
+                    manifest["bootstrap"]["commit"] = revision
                     manifest["generation"]["project-forge"]["version"] = version
                     inputs.update(repository=repository, author=owner,
-                                  revision="ccffdc6ea46d14f1d0fd32483ad80be5c5499d4a",
+                                  revision=revision,
                                   stable_version=version)
-                    with self.subTest(version=version, owner=owner, profile=profile):
+                    with self.subTest(revision=revision, version=version, owner=owner, profile=profile):
                         with self.assertRaises(PolicyError):
                             select(policy, manifest, **inputs)
                         self.assertEqual(select(policy, manifest, **inputs,
@@ -90,6 +95,17 @@ class OptionalGenerationPolicyTests(unittest.TestCase):
                         with self.assertRaises(PolicyError):
                             select(policy, future, **{**inputs, "revision": "b" * 40},
                                    advertised_profiles=[profile])
+
+    def test_corrected_revision_cannot_borrow_old_package_qualification(self):
+        policy = load(ROOT / "config/optional-generation-approvals.json")
+        for profile in (AUTH, FEEDBACK):
+            _, manifest, inputs = self.fixture(profile)
+            revision = QUALIFIED_RELEASES[-1][0]
+            manifest["bootstrap"]["commit"] = revision
+            inputs["revision"] = revision
+            # 4.36.3 remains qualified only against the previous revision.
+            with self.subTest(profile=profile), self.assertRaises(PolicyError):
+                select(policy, manifest, **inputs, advertised_profiles=[profile])
 
     def test_invalid_general_policy_rejected(self):
         policy = load(ROOT / "config/optional-generation-approvals.json")
